@@ -1,0 +1,6 @@
+{
+  "name": "Whisper Studio — Video & Voice to Text",
+  "description": "Modern desktop-grade video and audio batch transcription workspace with folder import, thumbnail extraction, and Windows 10 standalone .exe builder for whisper-20250625.",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
