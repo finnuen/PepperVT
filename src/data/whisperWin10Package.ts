@@ -1,5 +1,7 @@
 import JSZip from 'jszip';
 
+export const APP_VERSION = 'v.1.0';
+
 export interface SourceModuleAnalysis {
   file: string;
   role: string;
@@ -11,59 +13,57 @@ export interface SourceModuleAnalysis {
 export const WHISPER_SOURCE_ANALYSIS: SourceModuleAnalysis[] = [
   {
     file: 'whisper/__init__.py & version.py',
-    role: 'Model Registry & Checkpoint Loader (v20250625)',
-    keySymbols: 'load_model(), _MODELS, _ALIGNMENT_HEADS, available_models()',
-    win10ExePackagingNote: 'Downloads .pt weights to %USERPROFILE%\\.cache\\whisper or loads from local bundle directory using download_root on both Windows 10 & Windows 11.',
+    role: 'Model Registry & Checkpoint Loader (v20250625 → App v.1.0)',
+    keySymbols: 'load_model(name, device), _MODELS, _ALIGNMENT_HEADS, available_models()',
+    win10ExePackagingNote: 'Loads model weights onto "cuda" (NVIDIA GPU with FP16 Tensor Cores) when available, or "cpu" (FP32) fallback on Windows 10 & Windows 11.',
     summary: 'Defines SHA-256 verified URLs and alignment heads for tiny, base, small, medium, large-v1/v2/v3, and turbo (large-v3-turbo) models.'
   },
   {
     file: 'whisper/audio.py',
     role: '16kHz Audio Resampling & Log-Mel Spectrogram',
     keySymbols: 'load_audio(), pad_or_trim(), log_mel_spectrogram(), SAMPLE_RATE=16000, N_FFT=400, HOP_LENGTH=160',
-    win10ExePackagingNote: 'Invokes ffmpeg subprocess for decoding audio/video streams and loads whisper/assets/mel_filters.npz via np.load(). Must bundle mel_filters.npz & CREATE_NO_WINDOW flag on Windows 10/11.',
+    win10ExePackagingNote: 'Invokes ffmpeg subprocess for decoding audio/video streams and computes STFT on GPU/CPU using whisper/assets/mel_filters.npz.',
     summary: 'Spawns ffmpeg to decode any video (.mp4, .mkv, .mov) or audio (.flac, .mp3, .wav) into 16kHz mono float32 waveform, then computes 80-channel or 128-channel log-Mel spectrograms.'
   },
   {
     file: 'whisper/model.py',
-    role: 'Transformer Encoder-Decoder Architecture',
+    role: 'Transformer Encoder-Decoder Architecture (CUDA / CPU)',
     keySymbols: 'Whisper, AudioEncoder, TextDecoder, ResidualAttentionBlock, MultiHeadAttention',
-    win10ExePackagingNote: 'Uses PyTorch SDPA (scaled_dot_product_attention) when available; falls back cleanly to CPU float32 on Windows 10 & 11 machines without CUDA GPUs.',
+    win10ExePackagingNote: 'On NVIDIA GPUs, build_win10_11_exe.bat installs PyTorch with CUDA (cu121) so scaled_dot_product_attention & FP16 run on GPU hardware.',
     summary: 'Implements sinusoidal positional embeddings on 30-second audio windows (1500 frames) and causal cross-attention decoding over BPE tokens.'
   },
   {
     file: 'whisper/transcribe.py',
     role: 'Sliding-Window Transcription & Segment Generator',
-    keySymbols: 'transcribe(), cli(), seek loop, compression_ratio_threshold, logprob_threshold',
-    win10ExePackagingNote: 'CLI uses tqdm progress bars which crash PyInstaller --windowed builds when sys.stderr is None; GUI wrapper redirects stdout/stderr and sets verbose=False.',
+    keySymbols: 'transcribe(model, audio, fp16=...), cli(), seek loop',
+    win10ExePackagingNote: 'Automatically sets fp16=True when running on NVIDIA CUDA for up to 4x faster transcription, and fp16=False on CPU to avoid warnings.',
     summary: 'Processes long video/audio files in 30-second sliding windows, applying temperature fallback (0.0 to 1.0), voice activity heuristics, and timestamp token parsing.'
   },
   {
     file: 'whisper/tokenizer.py & assets/*.tiktoken',
     role: 'Multilingual BPE Tokenizer (tiktoken)',
     keySymbols: 'get_tokenizer(), Tokenizer, LANGUAGES, gpt2.tiktoken, multilingual.tiktoken',
-    win10ExePackagingNote: 'Reads base64 vocabulary files directly from whisper/assets/gpt2.tiktoken and multilingual.tiktoken. PyInstaller must include --add-data "whisper/assets;whisper/assets".',
+    win10ExePackagingNote: 'Reads base64 vocabulary files directly from whisper/assets/gpt2.tiktoken and multilingual.tiktoken bundled via PyInstaller.',
     summary: 'Maps 99+ language codes and special timestamp tokens (<|0.00|> through <|30.00|>) without requiring external HuggingFace tokenizers.'
   },
   {
     file: 'whisper/timing.py & triton_ops.py',
     role: 'Dynamic Time Warping (DTW) Word Timestamps',
     keySymbols: 'add_word_timestamps(), find_alignment(), median_filter()',
-    win10ExePackagingNote: 'triton_ops.py is optional (Linux CUDA only); timing.py automatically falls back to Numba/NumPy CPU DTW on Windows 10 & Windows 11.',
+    win10ExePackagingNote: 'triton_ops.py is excluded on Windows; timing.py uses fast Numba/PyTorch tensor operations on CUDA or CPU.',
     summary: 'Extracts cross-attention weights across alignment heads to compute sub-second word-level timestamps and punctuation boundaries.'
   }
 ];
 
 export const WIN10_GUI_PYTHON_CODE = `"""
-Whisper Studio — Modern Windows 10 & Windows 11 Standalone Video/Voice-to-Text GUI
+Whisper Studio v.1.0 — Modern Windows 10 & Windows 11 Standalone Video/Voice-to-Text GUI
 Built for whisper-20250625 source tree
-Compatible with Windows 10 (1809+) and Windows 11 (21H2 / 22H2 / 23H2 / 24H2)
-Supports:
+Features:
+  - Version: v.1.0
+  - Custom Red Voice-to-Text Application Icon (app_icon.ico + runtime window & taskbar icon)
+  - NVIDIA CUDA Hardware Acceleration (auto-detects NVIDIA GPU, enables FP16 + TF32/cuDNN benchmark, with CPU fallback)
   - Native Per-Monitor V2 HiDPI Scaling (Windows 10 & 11) + DWM Rounded Corners & Dark/Light Caption Styling
-  - Add Video/Audio (multi-file dialog: .mp4, .mkv, .mov, .avi, .webm, .mp3, .wav, .flac, .m4a, .ogg)
-  - Add Folder (recursive batch scan of all video & audio files in a directory)
-  - Automatic Video Frame Thumbnail Extraction (via ffmpeg) + Music Extension Icon fallback for audio
-  - Scrollable modern card list with 3-bullet preview limit & Chevron dropdown ("Show more / Show less")
-  - Background threaded Whisper inference (prevents Windows 10/11 "Not Responding" window freeze)
+  - Add Video/Audio & Add Folder batch transcription with 3-bullet limit + Chevron dropdown ("Show more / Show less")
 """
 
 import os
@@ -79,14 +79,10 @@ from tkinter import filedialog, messagebox
 import customtkinter as ctk
 from PIL import Image, ImageDraw
 
+APP_VERSION = "v.1.0"
+
 # ---------------------------------------------------------------------------
 # CRITICAL WINDOWS 10 & WINDOWS 11 COMPATIBILITY & PYINSTALLER FIXES
-# 1. In --windowed / --noconsole mode, sys.stdout and sys.stderr are None,
-#    which causes whisper/transcribe.py tqdm & print calls to raise AttributeError.
-# 2. Subprocess calls to ffmpeg must use CREATE_NO_WINDOW (0x08000000) so black
-#    cmd.exe / conhost.exe / Windows Terminal windows do not flash on screen.
-# 3. Enable Per-Monitor V2 DPI Awareness on Windows 10 & 11 for crisp text.
-# 4. Apply Windows 10/11 DWM Dark/Light Caption & Windows 11 Rounded Corners.
 # ---------------------------------------------------------------------------
 if sys.stdout is None:
     sys.stdout = open(os.devnull, "w", encoding="utf-8")
@@ -94,6 +90,12 @@ if sys.stderr is None:
     sys.stderr = open(os.devnull, "w", encoding="utf-8")
 
 if sys.platform == "win32":
+    # Set unique AppUserModelID so Windows 10/11 Taskbar displays our custom Red Voice-to-Text icon
+    try:
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("whisperstudio.voice2text.v1_0")
+    except Exception:
+        pass
+
     try:
         ctypes.windll.user32.SetProcessDpiAwarenessContext(ctypes.c_void_p(-4))
     except Exception:
@@ -114,8 +116,6 @@ if sys.platform == "win32":
 def apply_win10_win11_dwm_styling(hwnd: int, is_dark: bool = False):
     """
     Applies native DWM window attributes on Windows 10 and Windows 11.
-    Supports Windows 10 (1809+) & Windows 11 Immersive Dark Mode titlebar (DWMWA_USE_IMMERSIVE_DARK_MODE = 20)
-    and Windows 11 (Build >= 22000) native DWM rounded corners (DWMWCP_ROUND = 2).
     """
     if sys.platform != "win32":
         return
@@ -156,7 +156,6 @@ if getattr(sys, "frozen", False):
     os.environ["PATH"] = str(BUNDLE_DIR) + os.pathsep + os.environ.get("PATH", "")
 else:
     BUNDLE_DIR = Path(__file__).resolve().parent
-    # If placed next to whisper-20250625 subfolder, add it to sys.path automatically
     subfolder = BUNDLE_DIR / "whisper-20250625"
     if (subfolder / "whisper" / "__init__.py").exists():
         sys.path.insert(0, str(subfolder))
@@ -166,6 +165,15 @@ else:
 import torch
 import whisper
 
+# Enable NVIDIA CUDA hardware optimizations when an NVIDIA GPU is available
+if torch.cuda.is_available():
+    try:
+        torch.backends.cudnn.benchmark = True
+        torch.backends.cuda.matmul.allow_tf32 = True
+        torch.backends.cudnn.allow_tf32 = True
+    except Exception:
+        pass
+
 VIDEO_EXTENSIONS = {".mp4", ".mkv", ".mov", ".avi", ".webm", ".wmv", ".m4v"}
 AUDIO_EXTENSIONS = {".mp3", ".wav", ".flac", ".m4a", ".ogg", ".aac", ".wma", ".opus"}
 ALL_MEDIA_EXTENSIONS = VIDEO_EXTENSIONS | AUDIO_EXTENSIONS
@@ -173,10 +181,87 @@ ALL_MEDIA_EXTENSIONS = VIDEO_EXTENSIONS | AUDIO_EXTENSIONS
 INITIAL_BULLET_LIMIT = 3
 
 
+def create_voice_to_text_red_icon(size: int = 256) -> Image.Image:
+    """
+    Generates a crisp 'Voice-to-Text' icon on a Red background (#DC2626):
+    - Rounded red square badge
+    - White studio microphone capsule + stand on the left/center
+    - White speech/text lines on the right representing voice-to-text conversion
+    """
+    img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
+    s = size / 256.0
+
+    # Red rounded background (#DC2626) with subtle inner border (#EF4444)
+    pad = int(8 * s)
+    radius = int(56 * s)
+    draw.rounded_rectangle(
+        (pad, pad, size - pad, size - pad),
+        radius=radius,
+        fill=(220, 38, 38, 255),
+        outline=(248, 113, 113, 255),
+        width=max(1, int(4 * s))
+    )
+
+    white = (255, 255, 255, 255)
+    soft_white = (254, 226, 226, 255)
+
+    # Microphone capsule (left-center)
+    mx1, my1, mx2, my2 = int(54 * s), int(52 * s), int(110 * s), int(136 * s)
+    draw.rounded_rectangle((mx1, my1, mx2, my2), radius=int(28 * s), fill=white)
+
+    # Microphone U-cradle arc
+    arc_pad = int(14 * s)
+    stroke_w = max(2, int(10 * s))
+    draw.arc(
+        (mx1 - arc_pad, int(76 * s), mx2 + arc_pad, int(156 * s)),
+        start=0,
+        end=180,
+        fill=white,
+        width=stroke_w
+    )
+
+    # Microphone stem & base
+    cx = (mx1 + mx2) // 2
+    draw.line((cx, int(156 * s), cx, int(196 * s)), fill=white, width=stroke_w)
+    draw.rounded_rectangle(
+        (cx - int(28 * s), int(192 * s), cx + int(28 * s), int(204 * s)),
+        radius=int(6 * s),
+        fill=white
+    )
+
+    # Voice-to-Text document/transcript lines on the right side
+    lx1 = int(138 * s)
+    line_h = max(2, int(12 * s))
+    for idx, (ly, lx2) in enumerate([
+        (int(68 * s), int(206 * s)),
+        (int(98 * s), int(194 * s)),
+        (int(128 * s), int(208 * s)),
+        (int(158 * s), int(182 * s)),
+    ]):
+        draw.rounded_rectangle(
+            (lx1, ly, lx2, ly + line_h),
+            radius=int(6 * s),
+            fill=white if idx % 2 == 0 else soft_white
+        )
+
+    return img
+
+
+def save_ico_file(ico_path: Path):
+    """Saves the multi-size Windows .ico file used by PyInstaller and the window frame."""
+    base_img = create_voice_to_text_red_icon(256)
+    base_img.save(
+        str(ico_path),
+        format="ICO",
+        sizes=[(16, 16), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)]
+    )
+
+
 def create_audio_extension_icon(ext_text: str, size=(96, 112), dark=False) -> Image.Image:
     """
-    If not video, generates a crisp modern Music Extension Icon card (.MP3, .FLAC, .WAV)
-    matching the wireframe specification ("if not video, use music ext. icon").
+    If not video, generates a crisp modern Audio / Voice Extension Icon card (.MP3, .FLAC, .WAV)
+    with a red badge accent.
     """
     w, h = size
     img = Image.new("RGBA", (w, h), (0, 0, 0, 0))
@@ -184,7 +269,7 @@ def create_audio_extension_icon(ext_text: str, size=(96, 112), dark=False) -> Im
 
     bg_fill = (30, 41, 59, 255) if dark else (241, 245, 249, 255)
     border_col = (51, 65, 85, 255) if dark else (203, 213, 225, 255)
-    note_col = (96, 165, 250, 255) if dark else (37, 99, 235, 255)
+    note_col = (248, 113, 113, 255) if dark else (220, 38, 38, 255)
     pill_fill = (15, 23, 42, 255) if dark else (226, 232, 240, 255)
     txt_col = (241, 245, 249, 255) if dark else (30, 41, 59, 255)
 
@@ -206,7 +291,6 @@ def create_audio_extension_icon(ext_text: str, size=(96, 112), dark=False) -> Im
 def extract_video_thumbnail(video_path: Path, size=(96, 112)) -> Image.Image:
     """
     Extracts a real frame from a video file using ffmpeg and crops it into a rounded thumbnail.
-    Falls back to an icon if ffmpeg cannot extract a frame.
     """
     try:
         with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
@@ -231,6 +315,19 @@ def extract_video_thumbnail(video_path: Path, size=(96, 112)) -> Image.Image:
     except Exception:
         pass
     return create_audio_extension_icon(video_path.suffix, size=size)
+
+
+def get_hardware_summary() -> tuple[str, str]:
+    """
+    Returns (default_device, human_label) based on whether NVIDIA CUDA is available.
+    """
+    if torch.cuda.is_available():
+        try:
+            gpu_name = torch.cuda.get_device_name(0)
+            return "cuda", f"CUDA ({gpu_name})"
+        except Exception:
+            return "cuda", "CUDA (NVIDIA GPU)"
+    return "cpu", "CPU Runtime"
 
 
 class MediaRowCard(ctk.CTkFrame):
@@ -325,7 +422,7 @@ class MediaRowCard(ctk.CTkFrame):
             height=28,
             fg_color="transparent",
             hover_color=("#F1F5F9", "#1E293B"),
-            text_color=("#2563EB", "#60A5FA"),
+            text_color=("#DC2626", "#F87171"),
             font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
             command=self.toggle_expand
         )
@@ -333,9 +430,10 @@ class MediaRowCard(ctk.CTkFrame):
     def set_status(self, status_text: str):
         self.status_label.configure(text=status_text)
 
-    def set_segments(self, segments: list, language: str = "en"):
+    def set_segments(self, segments: list, language: str = "en", device_used: str = "cpu"):
         self.segments = segments
-        self.status_label.configure(text=f"{language.upper()} · {len(segments)} segments")
+        accel_tag = "CUDA" if device_used == "cuda" else "CPU"
+        self.status_label.configure(text=f"{language.upper()} · {len(segments)} segments · {accel_tag}")
         self.render_bullets()
 
     def render_bullets(self):
@@ -397,20 +495,28 @@ class WhisperWindowsApp(ctk.CTk):
     def __init__(self):
         super().__init__()
         os_tag = "Windows 11" if sys.platform == "win32" and sys.getwindowsversion().build >= 22000 else "Windows 10"
-        self.title(f"Whisper Studio — Video & Voice to Text ({os_tag})")
-        self.geometry("980x700")
-        self.minsize(760, 520)
+        self.default_device, self.hw_label = get_hardware_summary()
+        self.title(f"Whisper Studio {APP_VERSION} — Video & Voice to Text ({os_tag} · {self.hw_label})")
+        self.geometry("1020x720")
+        self.minsize(780, 520)
         self.is_dark_mode = False
         ctk.set_appearance_mode("light")
         self.configure(fg_color=("#F8FAFC", "#0B0F19"))
 
+        # Set Red Voice-to-Text Window & Taskbar Icon
+        self._apply_window_icon()
         self.after(100, lambda: apply_win10_win11_dwm_styling(self.winfo_id(), self.is_dark_mode))
 
         self.task_queue = queue.Queue()
         self.cards = []
         self.model = None
+        self.loaded_model_key = None
         self.current_model_name = tk.StringVar(value="base")
+        self.current_device_mode = tk.StringVar(
+            value="CUDA (NVIDIA GPU)" if self.default_device == "cuda" else "CPU Runtime"
+        )
 
+        # Top Action Bar: Brand Icon + [ Add Video/Audio ] + [ Add Folder ] + CUDA/CPU + Model + Dark Mode
         top_bar = ctk.CTkFrame(
             self,
             fg_color=("#FFFFFF", "#0F172A"),
@@ -424,23 +530,36 @@ class WhisperWindowsApp(ctk.CTk):
         btn_container = ctk.CTkFrame(top_bar, fg_color="transparent")
         btn_container.pack(pady=14, padx=24, fill="x")
 
+        # Red Voice-to-Text Brand Icon badge inside header
+        brand_pil = create_voice_to_text_red_icon(64)
+        self.brand_ctk_icon = ctk.CTkImage(light_image=brand_pil, dark_image=brand_pil, size=(34, 34))
+        self.brand_badge = ctk.CTkLabel(
+            btn_container,
+            image=self.brand_ctk_icon,
+            text=f"  Whisper Studio {APP_VERSION}",
+            compound="left",
+            font=ctk.CTkFont(family="Segoe UI", size=15, weight="bold"),
+            text_color=("#0F172A", "#F8FAFC")
+        )
+        self.brand_badge.pack(side="left", padx=(0, 18))
+
         self.add_files_btn = ctk.CTkButton(
             btn_container,
             text="+ Add Video / Audio",
-            width=180,
+            width=172,
             height=40,
             corner_radius=8,
-            fg_color=("#2563EB", "#2563EB"),
-            hover_color=("#1D4ED8", "#3B82F6"),
-            font=ctk.CTkFont(family="Segoe UI", size=14, weight="bold"),
+            fg_color=("#DC2626", "#DC2626"),
+            hover_color=("#B91C1C", "#EF4444"),
+            font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold"),
             command=self.add_video_audio_files
         )
-        self.add_files_btn.pack(side="left", padx=(0, 12))
+        self.add_files_btn.pack(side="left", padx=(0, 10))
 
         self.add_folder_btn = ctk.CTkButton(
             btn_container,
             text="+ Add Folder",
-            width=160,
+            width=144,
             height=40,
             corner_radius=8,
             fg_color=("#FFFFFF", "#1E293B"),
@@ -448,15 +567,15 @@ class WhisperWindowsApp(ctk.CTk):
             text_color=("#0F172A", "#F8FAFC"),
             border_width=1,
             border_color=("#CBD5E1", "#334155"),
-            font=ctk.CTkFont(family="Segoe UI", size=14, weight="bold"),
+            font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold"),
             command=self.add_folder
         )
-        self.add_folder_btn.pack(side="left", padx=(0, 16))
+        self.add_folder_btn.pack(side="left", padx=(0, 12))
 
         self.theme_btn = ctk.CTkButton(
             btn_container,
             text="Dark Mode",
-            width=104,
+            width=96,
             height=36,
             corner_radius=8,
             fg_color=("#F1F5F9", "#1E293B"),
@@ -465,38 +584,78 @@ class WhisperWindowsApp(ctk.CTk):
             font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
             command=self.toggle_theme
         )
-        self.theme_btn.pack(side="right", padx=(10, 0))
+        self.theme_btn.pack(side="right", padx=(8, 0))
 
         self.model_menu = ctk.CTkOptionMenu(
             btn_container,
             variable=self.current_model_name,
             values=["tiny", "base", "small", "medium", "large-v3", "turbo"],
-            width=130,
+            width=116,
             height=36,
             fg_color=("#F1F5F9", "#1E293B"),
             button_color=("#E2E8F0", "#334155"),
             text_color=("#0F172A", "#F8FAFC")
         )
-        self.model_menu.pack(side="right")
+        self.model_menu.pack(side="right", padx=(6, 0))
 
-        ctk.CTkLabel(
+        # Hardware Acceleration Selector (NVIDIA CUDA vs CPU)
+        device_options = ["CUDA (NVIDIA GPU)", "CPU Runtime"] if torch.cuda.is_available() else ["CPU Runtime"]
+        self.device_menu = ctk.CTkOptionMenu(
             btn_container,
-            text="Whisper Model:",
-            font=ctk.CTkFont(family="Segoe UI", size=13),
-            text_color=("#475569", "#94A3B8")
-        ).pack(side="right", padx=(0, 8))
+            variable=self.current_device_mode,
+            values=device_options,
+            width=155,
+            height=36,
+            fg_color=("#FEF2F2", "#1E293B") if torch.cuda.is_available() else ("#F1F5F9", "#1E293B"),
+            button_color=("#FECACA", "#334155") if torch.cuda.is_available() else ("#E2E8F0", "#334155"),
+            text_color=("#991B1B", "#F8FAFC") if torch.cuda.is_available() else ("#0F172A", "#F8FAFC")
+        )
+        self.device_menu.pack(side="right", padx=(6, 0))
 
+        # Scrollable Main List Container
         self.scroll_frame = ctk.CTkScrollableFrame(
             self,
             fg_color=("#F8FAFC", "#0B0F19"),
             scrollbar_button_color=("#CBD5E1", "#334155"),
             scrollbar_button_hover_color=("#94A3B8", "#475569")
         )
-        self.scroll_frame.pack(fill="both", expand=True, padx=24, pady=18)
+        self.scroll_frame.pack(fill="both", expand=True, padx=24, pady=(16, 8))
         self.scroll_frame.grid_columnconfigure(0, weight=1)
+
+        # Bottom Status Bar showing Version & Hardware Acceleration
+        status_bar = ctk.CTkFrame(
+            self,
+            fg_color=("#FFFFFF", "#0F172A"),
+            corner_radius=0,
+            height=32,
+            border_width=1,
+            border_color=("#E2E8F0", "#1E293B")
+        )
+        status_bar.pack(fill="x", side="bottom")
+        hw_status_text = (
+            f"Whisper Studio {APP_VERSION}  ·  Hardware Acceleration: {self.hw_label}  ·  "
+            f"{'FP16 Tensor Core Accelerated' if self.default_device == 'cuda' else 'FP32 Multi-Thread CPU'}"
+        )
+        ctk.CTkLabel(
+            status_bar,
+            text=hw_status_text,
+            font=ctk.CTkFont(family="Consolas", size=11),
+            text_color=("#64748B", "#94A3B8")
+        ).pack(side="left", padx=24, pady=4)
 
         self.worker_thread = threading.Thread(target=self.transcription_worker, daemon=True)
         self.worker_thread.start()
+
+    def _apply_window_icon(self):
+        try:
+            ico_path = BUNDLE_DIR / "app_icon.ico"
+            if not ico_path.exists():
+                ico_path = Path(tempfile.gettempdir()) / "whisper_studio_v1_0.ico"
+                save_ico_file(ico_path)
+            if sys.platform == "win32" and ico_path.exists():
+                self.iconbitmap(default=str(ico_path))
+        except Exception:
+            pass
 
     def toggle_theme(self):
         self.is_dark_mode = not self.is_dark_mode
@@ -535,22 +694,29 @@ class WhisperWindowsApp(ctk.CTk):
         self.task_queue.put(card)
 
     def transcription_worker(self):
-        loaded_name = None
         while True:
             card: MediaRowCard = self.task_queue.get()
             try:
                 target_model = self.current_model_name.get()
-                if self.model is None or loaded_name != target_model:
-                    self.after(0, lambda c=card, m=target_model: c.set_status(f"Loading {m} model..."))
-                    device = "cuda" if torch.cuda.is_available() else "cpu"
-                    self.model = whisper.load_model(target_model, device=device)
-                    loaded_name = target_model
+                wants_cuda = "CUDA" in self.current_device_mode.get() and torch.cuda.is_available()
+                device = "cuda" if wants_cuda else "cpu"
+                model_key = f"{target_model}:{device}"
 
-                self.after(0, lambda c=card: c.set_status("Transcribing..."))
-                result = self.model.transcribe(str(card.file_path), verbose=False)
+                if self.model is None or self.loaded_model_key != model_key:
+                    accel_str = "NVIDIA CUDA" if device == "cuda" else "CPU"
+                    self.after(0, lambda c=card, m=target_model, a=accel_str: c.set_status(f"Loading {m} on {a}..."))
+                    self.model = whisper.load_model(target_model, device=device)
+                    self.loaded_model_key = model_key
+
+                self.after(0, lambda c=card, d=device: c.set_status(f"Transcribing ({d.upper()})..."))
+                result = self.model.transcribe(
+                    str(card.file_path),
+                    verbose=False,
+                    fp16=(device == "cuda")
+                )
                 segments = result.get("segments", [])
                 lang = result.get("language", "en")
-                self.after(0, lambda c=card, s=segments, l=lang: c.set_segments(s, l))
+                self.after(0, lambda c=card, s=segments, l=lang, d=device: c.set_segments(s, l, d))
             except Exception as exc:
                 err_msg = str(exc)
                 self.after(0, lambda c=card, e=err_msg: c.set_status(f"Error: {e[:40]}"))
@@ -559,14 +725,17 @@ class WhisperWindowsApp(ctk.CTk):
 
 
 if __name__ == "__main__":
+    # Support "--generate-icon" CLI flag called by build_win10_11_exe.bat before PyInstaller runs
+    if "--generate-icon" in sys.argv:
+        save_ico_file(Path("app_icon.ico"))
+        sys.exit(0)
     app = WhisperWindowsApp()
     app.mainloop()
 `;
 
 export const PYINSTALLER_SPEC_CODE = `# -*- mode: python ; coding: utf-8 -*-
-# WhisperStudio.spec — PyInstaller Configuration for Windows 10 & Windows 11 Standalone .exe
-# Automatically locates whisper/assets whether extracted inside whisper-20250625/
-# or alongside whisper-20250625/, or from installed openai-whisper package.
+# WhisperStudio.spec — PyInstaller Configuration for Whisper Studio v.1.0 (Windows 10 & Windows 11)
+# Bundles Red Voice-to-Text app_icon.ico and whisper-20250625/whisper/assets
 
 import os
 import sys
@@ -594,6 +763,10 @@ elif os.path.exists('whisper-20250625/whisper/assets/mel_filters.npz'):
     ]
 else:
     whisper_assets = collect_data_files('whisper')
+
+# Bundle generated Red Voice-to-Text app_icon.ico inside _MEIPASS as well
+if os.path.exists('app_icon.ico'):
+    whisper_assets.append(('app_icon.ico', '.'))
 
 # 2. Optional: if ffmpeg.exe is placed in the project root, bundle it inside the .exe
 binaries = []
@@ -647,19 +820,20 @@ exe = EXE(
     a.zipfiles,
     a.datas,
     [],
-    name='WhisperStudio_Win10_Win11',
+    name='WhisperStudio_v1.0',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
     upx_exclude=[],
     runtime_tmpdir=None,
-    console=False,  # Windowed GUI mode (no black command prompt window on Win 10 or Win 11)
+    console=False,  # Windowed GUI mode
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    icon='app_icon.ico' if os.path.exists('app_icon.ico') else None,
 )
 `;
 
@@ -673,20 +847,59 @@ if "%~1"=="" (
 )
 
 cd /d "%~dp0"
-TITLE Whisper Studio - Windows 10 and Windows 11 Standalone EXE Builder
+TITLE Whisper Studio v.1.0 - Windows 10 and Windows 11 Standalone EXE Builder
 
 echo ============================================================================
-echo   Whisper Studio - Windows 10 and Windows 11 Standalone EXE Compiler
+echo   Whisper Studio v.1.0 - Windows 10 and Windows 11 Standalone EXE Compiler
 echo   Working Folder: %CD%
 echo ============================================================================
 echo.
 
 REM ----------------------------------------------------------------------------
-REM 1. Detect Python 3.11 (64-bit) FIRST!
-REM    Why: Python 3.14 does not yet have prebuilt wheels for numba/PyTorch,
-REM    whereas Python 3.11 (64-bit) has official prebuilt wheels for every
-REM    package in whisper-20250625. Also checks %LOCALAPPDATA% paths in case
-REM    "Add Python to PATH" was not ticked in the installer.
+REM STEP 0: CHECK USER HARDWARE SPECS BEFORE RUNNING ANYTHING
+REM Detects CPU, RAM, and GPU. If an NVIDIA GPU is detected, automatically
+REM selects the NVIDIA CUDA runtime; otherwise selects the CPU runtime.
+REM ----------------------------------------------------------------------------
+echo [Pre-Flight] Checking system hardware specifications...
+set "USE_CUDA=0"
+set "GPU_NAME=Standard Display Adapter"
+
+REM Method 1: Check nvidia-smi directly
+where nvidia-smi >nul 2>&1
+if not errorlevel 1 (
+    for /f "usebackq tokens=*" %%G in (\`nvidia-smi --query-gpu=name --format=csv,noheader 2^>nul\`) do (
+        set "GPU_NAME=%%G"
+        set "USE_CUDA=1"
+    )
+)
+
+if "%USE_CUDA%"=="1" goto :SPECS_DETECTED
+
+REM Method 2: Query Windows CIM / WMI VideoController for NVIDIA GPU
+for /f "usebackq tokens=*" %%G in (\`powershell -NoProfile -Command "$g = Get-CimInstance Win32_VideoController | Where-Object { $_.Name -match 'NVIDIA' } | Select-Object -First 1 -ExpandProperty Name; if ($g) { Write-Output $g }" 2^>nul\`) do (
+    set "GPU_NAME=%%G"
+    set "USE_CUDA=1"
+)
+
+if "%USE_CUDA%"=="1" goto :SPECS_DETECTED
+
+for /f "usebackq tokens=*" %%G in (\`powershell -NoProfile -Command "Get-CimInstance Win32_VideoController | Select-Object -First 1 -ExpandProperty Name" 2^>nul\`) do (
+    set "GPU_NAME=%%G"
+)
+
+:SPECS_DETECTED
+echo   Detected GPU : %GPU_NAME%
+if "%USE_CUDA%"=="1" goto :SHOW_CUDA_MODE
+echo   Runtime Mode : CPU Runtime [No NVIDIA GPU detected - using optimized CPU build]
+goto :FIND_PYTHON_STEP
+
+:SHOW_CUDA_MODE
+echo   Runtime Mode : NVIDIA CUDA Hardware Acceleration [Auto-enabled for NVIDIA GPU]
+
+:FIND_PYTHON_STEP
+echo.
+REM ----------------------------------------------------------------------------
+REM STEP 1: Detect Python 3.11 (64-bit) FIRST
 REM ----------------------------------------------------------------------------
 set "PY_CMD="
 
@@ -721,11 +934,6 @@ py -3 -c "import sys; assert sys.version_info >= (3, 8)" >nul 2>&1
 if not errorlevel 1 set "PY_CMD=py -3"
 if defined PY_CMD goto :FOUND_PYTHON
 
-if exist "%LOCALAPPDATA%\\Programs\\Python\\Python314\\python.exe" (
-    set "PY_CMD="%LOCALAPPDATA%\\Programs\\Python\\Python314\\python.exe""
-    goto :FOUND_PYTHON
-)
-
 echo [ERROR] Could not find Python 3.11 in PATH or %LOCALAPPDATA%\\Programs\\Python.
 echo.
 pause
@@ -736,7 +944,9 @@ echo [OK] Using Python interpreter: %PY_CMD%
 %PY_CMD% --version
 echo.
 
-REM 2. Create isolated Python 3.11 virtual environment (.venv_py311)
+REM ----------------------------------------------------------------------------
+REM STEP 2: Create isolated virtual environment & install CUDA or CPU Runtime
+REM ----------------------------------------------------------------------------
 if exist ".venv_py311\\Scripts\\python.exe" goto :VENV_READY
 echo [Step 1/4] Creating Python 3.11 virtual environment in .venv_py311 ...
 %PY_CMD% -m venv .venv_py311
@@ -751,10 +961,18 @@ set "VENV_PY=%~dp0.venv_py311\\Scripts\\python.exe"
 set "VENV_PIP=%~dp0.venv_py311\\Scripts\\pip.exe"
 set "VENV_PYINSTALLER=%~dp0.venv_py311\\Scripts\\pyinstaller.exe"
 
-echo [Step 2/4] Installing Whisper, CustomTkinter, Pillow, and PyInstaller into .venv_py311 ...
 "%VENV_PY%" -m pip install --upgrade pip setuptools wheel
 
-REM Auto-detect whether script is inside whisper-20250625, next to it, or standalone
+if "%USE_CUDA%"=="1" goto :INSTALL_CUDA_TORCH
+echo [Step 2/4] Installing CPU-optimized PyTorch runtime...
+"%VENV_PIP%" install torch --index-url https://download.pytorch.org/whl/cpu
+goto :INSTALL_WHISPER_SOURCE
+
+:INSTALL_CUDA_TORCH
+echo [Step 2/4] NVIDIA GPU detected! Installing PyTorch with NVIDIA CUDA 12.1 runtime...
+"%VENV_PIP%" install torch --index-url https://download.pytorch.org/whl/cu121
+
+:INSTALL_WHISPER_SOURCE
 if exist "whisper\\__init__.py" goto :INSTALL_LOCAL_CURRENT
 if exist "whisper-20250625\\whisper\\__init__.py" goto :INSTALL_LOCAL_SUBDIR
 goto :INSTALL_PYPI_WHISPER
@@ -783,6 +1001,10 @@ if errorlevel 1 (
     exit /b 1
 )
 
+REM Generate the Red Voice-to-Text app_icon.ico before compiling
+echo [OK] Generating Red Voice-to-Text icon: app_icon.ico ...
+"%VENV_PY%" whisper_gui_win10_11.py --generate-icon
+
 REM 3. Check for ffmpeg.exe
 where ffmpeg >nul 2>&1
 if not errorlevel 1 goto :FFMPEG_OK
@@ -794,48 +1016,42 @@ winget install Gyan.FFmpeg --accept-source-agreements --accept-package-agreement
 
 :FFMPEG_OK
 echo.
-echo [Step 3/4] Compiling standalone dist\\WhisperStudio_Win10_Win11.exe ...
+echo [Step 3/4] Compiling standalone dist\\WhisperStudio_v1.0.exe ...
 if exist "WhisperStudio.spec" (
     "%VENV_PYINSTALLER%" --clean --noconfirm WhisperStudio.spec
 ) else (
-    "%VENV_PYINSTALLER%" --clean --noconfirm --onefile --windowed --name WhisperStudio_Win10_Win11 --collect-all whisper --collect-all customtkinter --hidden-import tiktoken_ext.openai_public whisper_gui_win10_11.py
+    "%VENV_PYINSTALLER%" --clean --noconfirm --onefile --windowed --name WhisperStudio_v1.0 --icon app_icon.ico --collect-all whisper --collect-all customtkinter --hidden-import tiktoken_ext.openai_public whisper_gui_win10_11.py
 )
 
 echo.
-if exist "dist\\WhisperStudio_Win10_Win11.exe" goto :BUILD_SUCCESS
-echo [ERROR] Build did not produce dist\\WhisperStudio_Win10_Win11.exe.
+if exist "dist\\WhisperStudio_v1.0.exe" goto :BUILD_SUCCESS
+echo [ERROR] Build did not produce dist\\WhisperStudio_v1.0.exe.
 echo Review the log messages above for details.
 pause
 exit /b 1
 
 :BUILD_SUCCESS
 echo ============================================================================
-echo [Step 4/4] BUILD SUCCESSFUL!
+echo [Step 4/4] BUILD SUCCESSFUL! (Whisper Studio v.1.0)
 echo Standalone Windows 10 and 11 EXE created at:
-echo   %~dp0dist\\WhisperStudio_Win10_Win11.exe
+echo   %~dp0dist\\WhisperStudio_v1.0.exe
 echo ============================================================================
-explorer.exe /select,"%~dp0dist\\WhisperStudio_Win10_Win11.exe"
+explorer.exe /select,"%~dp0dist\\WhisperStudio_v1.0.exe"
 pause
 `;
 
-export const WIN10_README_GUIDE = `# Whisper Studio — Windows 10 & Windows 11 Standalone \`.exe\` Build Kit
+export const WIN10_README_GUIDE = `# Whisper Studio v.1.0 — Windows 10 & Windows 11 Standalone \`.exe\` Build Kit
 
-This package turns your **\`whisper-20250625\`** repository into a modern, standalone Windows 10 and Windows 11 desktop application (\`WhisperStudio_Win10_Win11.exe\`) modelled on your reference UI layout.
+This package compiles your **\`whisper-20250625\`** repository into **\`WhisperStudio_v1.0.exe\`** for Windows 10 and Windows 11.
 
-## Why \`build_win10_11_exe.bat\` Was Closing Immediately (And How It Is Fixed)
+## What's New in \`v.1.0\`
 
-1. **Windows \`cmd.exe\` Parenthesis Parsing & CRLF Line Endings**:
-   - In Windows Batch (\`.bat\`), any \`echo\` statement containing parentheses \`( )\` inside an \`if ( ... )\` block prematurely terminates the \`if\` block with a fatal syntax error before \`pause\` is ever reached.
-   - Additionally, \`.bat\` files must use Windows \`CRLF\` (\`\\r\\n\`) line endings.
-   - **Fix Applied**: \`build_win10_11_exe.bat\` now starts with a self-relaunching \`cmd /k "%~f0" RUN\` wrapper (guaranteeing the console window stays open no matter what), uses \`goto\` labels instead of nested parenthesis blocks, and is packaged with strict \`CRLF\` (\`\\r\\n\`) line endings.
-2. **Works From Any Folder Layout**:
-   - Whether you extract the kit **inside** \`whisper-20250625\\\`, **next to** \`whisper-20250625\\\`, or in an empty folder, the builder automatically locates the \`whisper\` source tree and \`whisper/assets/\` files.
-
-## How to Build \`WhisperStudio_Win10_Win11.exe\` (1-Click)
-
-1. Extract \`WhisperStudio_Win10_Win11_Standalone_Kit.zip\` into your \`whisper-20250625\` folder.
-2. Double-click **\`build_win10_11_exe.bat\`**.
-3. The command window will stay open, create \`.venv_win\`, install dependencies, and open Windows Explorer highlighting **\`dist\\WhisperStudio_Win10_Win11.exe\`** when finished.
+1. **Pre-Flight Hardware Spec Check & Automatic NVIDIA CUDA Acceleration**:
+   - Before \`build_win10_11_exe.bat\` installs anything, it inspects your machine's GPU via \`nvidia-smi\` and Windows \`Win32_VideoController\`.
+   - **If an NVIDIA GPU is detected**: It automatically installs the **CUDA-enabled PyTorch runtime** (\`cu121\`) and enables FP16 Tensor Core + cuDNN benchmark acceleration inside the GUI.
+   - **If no NVIDIA GPU is detected**: It automatically installs the lightweight **CPU runtime** (\`fp16=False\`).
+2. **Red Voice-to-Text Icon (\`app_icon.ico\`)**:
+   - Automatically generates a multi-resolution Windows \`.ico\` featuring a typical white Voice-to-Text microphone & transcript lines on a vibrant Red background (\`#DC2626\`) and embeds it into \`WhisperStudio_v1.0.exe\`, the window titlebar, and the Windows 10/11 taskbar.
 `;
 
 function toWindowsCrLf(text: string): string {
@@ -866,7 +1082,7 @@ export async function downloadWin10BuildKitZip(): Promise<void> {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = 'WhisperStudio_Win10_Win11_Standalone_Kit.zip';
+  a.download = 'WhisperStudio_v1.0_Win10_Win11_Kit.zip';
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);

@@ -17,7 +17,8 @@ import {
   RotateCcw,
   Upload,
   Moon,
-  Sun
+  Sun,
+  Cpu
 } from 'lucide-react';
 import {
   MediaTranscriptItem,
@@ -34,7 +35,80 @@ import {
 import { getInitialMediaItems } from './data/initialSamples';
 import { TranscriptRowCard } from './components/TranscriptRowCard';
 import { Win10ExeBuilderModal } from './components/Win10ExeBuilderModal';
-import { downloadWin10BuildKitZip } from './data/whisperWin10Package';
+import { APP_VERSION, downloadWin10BuildKitZip } from './data/whisperWin10Package';
+
+/**
+ * Typical "Voice-to-Text" Icon on a Red Background (#DC2626):
+ * Microphone on the left converting speech into text lines on the right.
+ */
+const VoiceToTextRedIcon: React.FC<{ className?: string }> = ({ className = 'w-7 h-7' }) => (
+  <svg
+    viewBox="0 0 64 64"
+    className={`${className} rounded-lg shrink-0 select-none shadow-2xs`}
+    aria-hidden="true"
+  >
+    <rect width="64" height="64" rx="14" fill="#DC2626" />
+    <rect x="14" y="13" width="14" height="22" rx="7" fill="#FFFFFF" />
+    <path
+      d="M10 24a11 11 0 0 0 22 0"
+      fill="none"
+      stroke="#FFFFFF"
+      strokeWidth="3.5"
+      strokeLinecap="round"
+    />
+    <line
+      x1="21"
+      y1="35"
+      x2="21"
+      y2="47"
+      stroke="#FFFFFF"
+      strokeWidth="3.5"
+      strokeLinecap="round"
+    />
+    <line
+      x1="15"
+      y1="47"
+      x2="27"
+      y2="47"
+      stroke="#FFFFFF"
+      strokeWidth="3.5"
+      strokeLinecap="round"
+    />
+    <rect x="36" y="17" width="16" height="3.5" rx="1.75" fill="#FFFFFF" />
+    <rect x="36" y="25" width="13" height="3.5" rx="1.75" fill="#FEE2E2" />
+    <rect x="36" y="33" width="17" height="3.5" rx="1.75" fill="#FFFFFF" />
+    <rect x="36" y="41" width="11" height="3.5" rx="1.75" fill="#FEE2E2" />
+  </svg>
+);
+
+function detectHardwareGpuSpec(): { hasNvidia: boolean; gpuName: string } {
+  try {
+    const canvas = document.createElement('canvas');
+    const gl =
+      canvas.getContext('webgl') ||
+      (canvas.getContext('experimental-webgl') as WebGLRenderingContext | null);
+    if (gl) {
+      const debugInfo = gl.getExtension('WEBGL_debug_renderer_info');
+      if (debugInfo) {
+        const renderer = String(gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL) || '');
+        if (/nvidia|geforce|rtx|gtx|quadro|tesla/i.test(renderer)) {
+          // Clean ANGLE wrapper text if present
+          const match = renderer.match(/NVIDIA[^,)]+/i);
+          return {
+            hasNvidia: true,
+            gpuName: match ? match[0].trim() : renderer,
+          };
+        }
+        if (renderer) {
+          return { hasNvidia: false, gpuName: renderer };
+        }
+      }
+    }
+  } catch {
+    // ignore WebGL query error
+  }
+  return { hasNvidia: false, gpuName: 'Standard CPU Runtime' };
+}
 
 export default function App() {
   const [items, setItems] = useState<MediaTranscriptItem[]>(() => getInitialMediaItems());
@@ -44,6 +118,13 @@ export default function App() {
   const [showTimestamps, setShowTimestamps] = useState(true);
   const [isDraggingOver, setIsDraggingOver] = useState(false);
   const [isExeModalOpen, setIsExeModalOpen] = useState(false);
+
+  // Auto-detect user hardware specs (NVIDIA CUDA vs CPU Runtime)
+  const [hwSpec] = useState(() => detectHardwareGpuSpec());
+  const [runtimeMode, setRuntimeMode] = useState<'cuda' | 'cpu'>(() =>
+    detectHardwareGpuSpec().hasNvidia ? 'cuda' : 'cpu'
+  );
+
   const [isDark, setIsDark] = useState<boolean>(() => {
     try {
       const saved = localStorage.getItem('whisper_studio_theme');
@@ -91,7 +172,6 @@ export default function App() {
 
     const objectUrl = URL.createObjectURL(file);
 
-    // Create optimistic item in list
     const initialItem: MediaTranscriptItem = {
       id,
       fileName: file.name,
@@ -103,13 +183,12 @@ export default function App() {
       mediaObjectUrl: objectUrl,
       status: 'transcribing',
       detectedLanguage: 'Detecting...',
-      modelUsed: selectedModel,
+      modelUsed: `${selectedModel} · ${runtimeMode.toUpperCase()}`,
       segments: [],
     };
 
     setItems((prev) => [initialItem, ...prev]);
 
-    // Extract video thumbnail or audio duration asynchronously
     if (mediaType === 'video') {
       const { thumbnailDataUrl, durationFormatted } =
         await extractVideoMetadataAndThumbnail(file);
@@ -127,7 +206,6 @@ export default function App() {
       );
     }
 
-    // Transcribe via server-side Gemini API
     try {
       const base64Data = await fileToBase64(file);
       const mimeType =
@@ -238,7 +316,6 @@ export default function App() {
         setRecordingSeconds((s) => s + 1);
       }, 1000);
     } catch {
-      // Microphone permission denied or unavailable
       setIsRecording(false);
     }
   };
@@ -283,7 +360,7 @@ export default function App() {
           href="#workspace"
           className="text-base font-bold tracking-tight text-slate-900 dark:text-white whitespace-nowrap shrink-0"
         >
-          Whisper Studio
+          Whisper Studio {APP_VERSION}
         </a>
 
         {/* Zone 2: Concise single-line navigation links */}
@@ -322,10 +399,10 @@ export default function App() {
           <button
             type="button"
             onClick={() => downloadWin10BuildKitZip()}
-            className="inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold text-white bg-slate-900 dark:bg-blue-600 hover:bg-slate-800 dark:hover:bg-blue-500 rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+            className="inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold text-white bg-red-600 hover:bg-red-700 rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer"
           >
             <FolderArchive className="w-3.5 h-3.5" />
-            <span>Download Win 10/11 .EXE Kit</span>
+            <span>Download {APP_VERSION} Win 10/11 Kit</span>
           </button>
         </div>
       </header>
@@ -362,17 +439,30 @@ export default function App() {
         <div
           className={`bg-white dark:bg-slate-900 border rounded-2xl transition-colors ${
             isDraggingOver
-              ? 'border-blue-600 ring-2 ring-blue-500/20'
+              ? 'border-red-600 ring-2 ring-red-500/20'
               : 'border-slate-200/90 dark:border-slate-800 shadow-xs'
           }`}
         >
           {/* Top Action Bar — Modernized from [ add video/audio ] [ add folder ] in Reference Image */}
-          <div className="px-6 py-5 border-b border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-4">
+          <div className="px-6 py-5 border-b border-slate-200 dark:border-slate-800 flex flex-col lg:flex-row items-center justify-between gap-4">
             <div className="flex flex-wrap items-center justify-center sm:justify-start gap-3">
+              {/* Typical Voice-to-Text Red Icon Badge */}
+              <div className="flex items-center gap-2.5 pr-2">
+                <VoiceToTextRedIcon className="w-9 h-9" />
+                <div className="hidden sm:block">
+                  <div className="text-xs font-bold text-slate-900 dark:text-slate-100 leading-none">
+                    Voice to Text
+                  </div>
+                  <div className="text-[11px] font-mono text-slate-400 dark:text-slate-500 mt-1 leading-none">
+                    {APP_VERSION}
+                  </div>
+                </div>
+              </div>
+
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
-                className="inline-flex items-center gap-2 px-5 py-2.5 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-xl transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+                className="inline-flex items-center gap-2 px-5 py-2.5 text-sm font-semibold text-white bg-red-600 hover:bg-red-700 rounded-xl transition-colors whitespace-nowrap shrink-0 cursor-pointer"
               >
                 <FileVideo className="w-4 h-4" />
                 <span>Add Video / Audio</span>
@@ -405,31 +495,45 @@ export default function App() {
                   </>
                 ) : (
                   <>
-                    <Mic className="w-4 h-4 text-slate-600 dark:text-slate-300" />
+                    <Mic className="w-4 h-4 text-red-600 dark:text-red-400" />
                     <span>Record Voice</span>
                   </>
                 )}
               </button>
             </div>
 
-            {/* Right Model, Dark Mode Toggle & Builder Quick Access */}
-            <div className="flex flex-wrap items-center gap-2.5">
-              <div className="flex items-center gap-2 text-xs text-slate-600 dark:text-slate-400">
-                <label htmlFor="whisper-model-select" className="font-medium whitespace-nowrap">
-                  Model:
-                </label>
+            {/* Right Hardware Acceleration (CUDA / CPU), Model, Dark Mode Toggle & Builder Quick Access */}
+            <div className="flex flex-wrap items-center justify-center gap-2">
+              {/* Hardware Acceleration Selector (NVIDIA CUDA vs CPU) */}
+              <div className="flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-400">
+                <Cpu className="w-3.5 h-3.5 text-red-600 dark:text-red-400 shrink-0" />
+                <select
+                  aria-label="Hardware Acceleration Runtime"
+                  value={runtimeMode}
+                  onChange={(e) => setRuntimeMode(e.target.value as 'cuda' | 'cpu')}
+                  className="px-2.5 py-1.5 text-xs font-mono font-medium text-slate-800 dark:text-slate-100 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg focus:outline-none focus:border-red-600"
+                >
+                  <option value="cuda">
+                    CUDA (NVIDIA {hwSpec.hasNvidia ? 'Auto' : 'GPU'})
+                  </option>
+                  <option value="cpu">CPU Runtime</option>
+                </select>
+              </div>
+
+              <div className="flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-400">
                 <select
                   id="whisper-model-select"
+                  aria-label="Whisper Model"
                   value={selectedModel}
                   onChange={(e) => setSelectedModel(e.target.value)}
-                  className="px-2.5 py-1.5 text-xs font-mono font-medium text-slate-800 dark:text-slate-100 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg focus:outline-none focus:border-blue-600"
+                  className="px-2.5 py-1.5 text-xs font-mono font-medium text-slate-800 dark:text-slate-100 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg focus:outline-none focus:border-red-600"
                 >
-                  <option value="turbo">turbo (v20250625)</option>
-                  <option value="large-v3">large-v3</option>
-                  <option value="medium">medium</option>
-                  <option value="small">small</option>
-                  <option value="base">base</option>
-                  <option value="tiny">tiny</option>
+                  <option value="turbo">Model: turbo</option>
+                  <option value="large-v3">Model: large-v3</option>
+                  <option value="medium">Model: medium</option>
+                  <option value="small">Model: small</option>
+                  <option value="base">Model: base</option>
+                  <option value="tiny">Model: tiny</option>
                 </select>
               </div>
 
@@ -439,8 +543,8 @@ export default function App() {
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200/80 dark:hover:bg-slate-700 rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer"
                 title="View whisper-20250625 analysis and Windows 10/11 .exe builder code"
               >
-                <Code2 className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
-                <span>Win 10/11 .EXE Builder</span>
+                <Code2 className="w-3.5 h-3.5 text-red-600 dark:text-red-400" />
+                <span>.EXE Builder ({APP_VERSION})</span>
               </button>
 
               <button
@@ -475,7 +579,7 @@ export default function App() {
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="Filter by filename or transcript text..."
-                className="w-full pl-8 pr-3 py-1.5 text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-800 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none focus:border-blue-600 dark:focus:border-blue-500"
+                className="w-full pl-8 pr-3 py-1.5 text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-800 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none focus:border-red-600 dark:focus:border-red-500"
               />
             </div>
 
@@ -503,7 +607,7 @@ export default function App() {
                 onClick={() => setShowTimestamps((t) => !t)}
                 className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-lg border transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
                   showTimestamps
-                    ? 'bg-blue-50/80 dark:bg-blue-950/60 text-blue-700 dark:text-blue-400 border-blue-200 dark:border-blue-800/80'
+                    ? 'bg-red-50/80 dark:bg-red-950/60 text-red-700 dark:text-red-400 border-red-200 dark:border-red-800/80'
                     : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-800 hover:text-slate-900 dark:hover:text-slate-200'
                 }`}
               >
@@ -542,7 +646,7 @@ export default function App() {
                   <button
                     type="button"
                     onClick={() => fileInputRef.current?.click()}
-                    className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors cursor-pointer"
+                    className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-red-600 hover:bg-red-700 rounded-lg transition-colors cursor-pointer"
                   >
                     <FileVideo className="w-3.5 h-3.5" />
                     <span>Select Media Files</span>
@@ -572,22 +676,25 @@ export default function App() {
             )}
           </div>
 
-          {/* Quiet Bottom Bar with Windows 10 & 11 Standalone .EXE Callout */}
+          {/* Quiet Bottom Bar with Version v.1.0 & Hardware Spec Status */}
           <div className="px-6 py-3.5 bg-slate-50 dark:bg-slate-950/60 border-t border-slate-200 dark:border-slate-800 rounded-b-2xl flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-slate-500 dark:text-slate-400">
-            <div>
+            <div className="flex flex-wrap items-center gap-1.5 font-mono tabular-nums">
+              <span>Whisper Studio {APP_VERSION}</span>
+              <span aria-hidden="true">·</span>
               <span>
-                Showing <span className="font-mono font-medium text-slate-700 dark:text-slate-200 tabular-nums">{filteredItems.length}</span> media{' '}
-                {filteredItems.length === 1 ? 'file' : 'files'} · Each card shows up to 3 lines with a dropdown chevron for longer transcripts
+                Runtime: {runtimeMode === 'cuda' ? 'NVIDIA CUDA (FP16)' : 'CPU Runtime (FP32)'}
               </span>
+              <span aria-hidden="true">·</span>
+              <span>{filteredItems.length} files</span>
             </div>
 
             <div className="flex items-center gap-4">
               <button
                 type="button"
                 onClick={() => setIsExeModalOpen(true)}
-                className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 font-medium hover:underline whitespace-nowrap cursor-pointer"
+                className="text-red-600 dark:text-red-400 hover:text-red-800 dark:hover:text-red-300 font-medium hover:underline whitespace-nowrap cursor-pointer"
               >
-                Inspect Windows 10 & 11 .EXE Source & Spec →
+                Inspect {APP_VERSION} Windows 10 & 11 .EXE Source & Spec →
               </button>
             </div>
           </div>

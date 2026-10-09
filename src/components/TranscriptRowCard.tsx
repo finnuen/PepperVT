@@ -101,9 +101,9 @@ export const TranscriptRowCard: React.FC<TranscriptRowCardProps> = ({
                 </div>
               </>
             ) : (
-              /* Music Extension Icon for Audio files ("if not video, use music ext. icon") */
+              /* Music / Voice Extension Icon on Red background for Audio files */
               <div className="w-full h-full bg-gradient-to-b from-slate-50 to-slate-100/90 dark:from-slate-800/90 dark:to-slate-900 flex flex-col items-center justify-center p-3 text-center">
-                <div className="w-11 h-11 rounded-xl bg-blue-50 dark:bg-blue-950/70 border border-blue-200/80 dark:border-blue-800/70 flex items-center justify-center text-blue-600 dark:text-blue-400 mb-2">
+                <div className="w-11 h-11 rounded-xl bg-red-600 shadow-xs flex items-center justify-center text-white mb-2">
                   <Music className="w-5 h-5 stroke-[2.2]" />
                 </div>
                 <span className="font-mono text-xs font-semibold tracking-wider text-slate-800 dark:text-slate-100">
