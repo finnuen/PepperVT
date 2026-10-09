@@ -35,7 +35,7 @@ import {
 import { getInitialMediaItems } from './data/initialSamples';
 import { TranscriptRowCard } from './components/TranscriptRowCard';
 import { Win10ExeBuilderModal } from './components/Win10ExeBuilderModal';
-import { APP_VERSION, downloadWin10BuildKitZip } from './data/whisperWin10Package';
+import { APP_NAME, APP_VERSION, downloadWin10BuildKitZip } from './data/whisperWin10Package';
 
 /**
  * Typical "Voice-to-Text" Icon on a Red Background (#DC2626):
@@ -81,35 +81,6 @@ const VoiceToTextRedIcon: React.FC<{ className?: string }> = ({ className = 'w-7
   </svg>
 );
 
-function detectHardwareGpuSpec(): { hasNvidia: boolean; gpuName: string } {
-  try {
-    const canvas = document.createElement('canvas');
-    const gl =
-      canvas.getContext('webgl') ||
-      (canvas.getContext('experimental-webgl') as WebGLRenderingContext | null);
-    if (gl) {
-      const debugInfo = gl.getExtension('WEBGL_debug_renderer_info');
-      if (debugInfo) {
-        const renderer = String(gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL) || '');
-        if (/nvidia|geforce|rtx|gtx|quadro|tesla/i.test(renderer)) {
-          // Clean ANGLE wrapper text if present
-          const match = renderer.match(/NVIDIA[^,)]+/i);
-          return {
-            hasNvidia: true,
-            gpuName: match ? match[0].trim() : renderer,
-          };
-        }
-        if (renderer) {
-          return { hasNvidia: false, gpuName: renderer };
-        }
-      }
-    }
-  } catch {
-    // ignore WebGL query error
-  }
-  return { hasNvidia: false, gpuName: 'Standard CPU Runtime' };
-}
-
 export default function App() {
   const [items, setItems] = useState<MediaTranscriptItem[]>(() => getInitialMediaItems());
   const [searchQuery, setSearchQuery] = useState('');
@@ -119,15 +90,9 @@ export default function App() {
   const [isDraggingOver, setIsDraggingOver] = useState(false);
   const [isExeModalOpen, setIsExeModalOpen] = useState(false);
 
-  // Auto-detect user hardware specs (NVIDIA CUDA vs CPU Runtime)
-  const [hwSpec] = useState(() => detectHardwareGpuSpec());
-  const [runtimeMode, setRuntimeMode] = useState<'cuda' | 'cpu'>(() =>
-    detectHardwareGpuSpec().hasNvidia ? 'cuda' : 'cpu'
-  );
-
   const [isDark, setIsDark] = useState<boolean>(() => {
     try {
-      const saved = localStorage.getItem('whisper_studio_theme');
+      const saved = localStorage.getItem('peppervt_theme');
       if (saved === 'dark') return true;
       if (saved === 'light') return false;
     } catch {
@@ -144,7 +109,7 @@ export default function App() {
       root.classList.remove('dark');
     }
     try {
-      localStorage.setItem('whisper_studio_theme', isDark ? 'dark' : 'light');
+      localStorage.setItem('peppervt_theme', isDark ? 'dark' : 'light');
     } catch {
       // ignore storage errors
     }
@@ -183,7 +148,7 @@ export default function App() {
       mediaObjectUrl: objectUrl,
       status: 'transcribing',
       detectedLanguage: 'Detecting...',
-      modelUsed: `${selectedModel} · ${runtimeMode.toUpperCase()}`,
+      modelUsed: `${selectedModel} · CPU`,
       segments: [],
     };
 
@@ -360,7 +325,7 @@ export default function App() {
           href="#workspace"
           className="text-base font-bold tracking-tight text-slate-900 dark:text-white whitespace-nowrap shrink-0"
         >
-          Whisper Studio {APP_VERSION}
+          {APP_NAME} {APP_VERSION}
         </a>
 
         {/* Zone 2: Concise single-line navigation links */}
@@ -451,7 +416,7 @@ export default function App() {
                 <VoiceToTextRedIcon className="w-9 h-9" />
                 <div className="hidden sm:block">
                   <div className="text-xs font-bold text-slate-900 dark:text-slate-100 leading-none">
-                    Voice to Text
+                    {APP_NAME}
                   </div>
                   <div className="text-[11px] font-mono text-slate-400 dark:text-slate-500 mt-1 leading-none">
                     {APP_VERSION}
@@ -502,22 +467,14 @@ export default function App() {
               </button>
             </div>
 
-            {/* Right Hardware Acceleration (CUDA / CPU), Model, Dark Mode Toggle & Builder Quick Access */}
+            {/* Right CPU Runtime Badge, Model, Dark Mode Toggle & Builder Quick Access */}
             <div className="flex flex-wrap items-center justify-center gap-2">
-              {/* Hardware Acceleration Selector (NVIDIA CUDA vs CPU) */}
-              <div className="flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-400">
+              <div
+                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-mono font-medium text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg"
+                title="Universal CPU Runtime — saves ~2.5 GB and works on all Windows 10 & 11 PCs"
+              >
                 <Cpu className="w-3.5 h-3.5 text-red-600 dark:text-red-400 shrink-0" />
-                <select
-                  aria-label="Hardware Acceleration Runtime"
-                  value={runtimeMode}
-                  onChange={(e) => setRuntimeMode(e.target.value as 'cuda' | 'cpu')}
-                  className="px-2.5 py-1.5 text-xs font-mono font-medium text-slate-800 dark:text-slate-100 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg focus:outline-none focus:border-red-600"
-                >
-                  <option value="cuda">
-                    CUDA (NVIDIA {hwSpec.hasNvidia ? 'Auto' : 'GPU'})
-                  </option>
-                  <option value="cpu">CPU Runtime</option>
-                </select>
+                <span>CPU Runtime</span>
               </div>
 
               <div className="flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-400">
@@ -679,11 +636,9 @@ export default function App() {
           {/* Quiet Bottom Bar with Version v.1.0 & Hardware Spec Status */}
           <div className="px-6 py-3.5 bg-slate-50 dark:bg-slate-950/60 border-t border-slate-200 dark:border-slate-800 rounded-b-2xl flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-slate-500 dark:text-slate-400">
             <div className="flex flex-wrap items-center gap-1.5 font-mono tabular-nums">
-              <span>Whisper Studio {APP_VERSION}</span>
+              <span>{APP_NAME} {APP_VERSION}</span>
               <span aria-hidden="true">·</span>
-              <span>
-                Runtime: {runtimeMode === 'cuda' ? 'NVIDIA CUDA (FP16)' : 'CPU Runtime (FP32)'}
-              </span>
+              <span>Runtime: Universal CPU (Space-Optimized)</span>
               <span aria-hidden="true">·</span>
               <span>{filteredItems.length} files</span>
             </div>

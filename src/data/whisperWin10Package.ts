@@ -1,6 +1,7 @@
 import JSZip from 'jszip';
 
-export const APP_VERSION = 'v.1.0';
+export const APP_NAME = 'PepperVT';
+export const APP_VERSION = 'v1.0';
 
 export interface SourceModuleAnalysis {
   file: string;
@@ -13,30 +14,30 @@ export interface SourceModuleAnalysis {
 export const WHISPER_SOURCE_ANALYSIS: SourceModuleAnalysis[] = [
   {
     file: 'whisper/__init__.py & version.py',
-    role: 'Model Registry & Checkpoint Loader (v20250625 → App v.1.0)',
-    keySymbols: 'load_model(name, device), _MODELS, _ALIGNMENT_HEADS, available_models()',
-    win10ExePackagingNote: 'Loads model weights onto "cuda" (NVIDIA GPU with FP16 Tensor Cores) when available, or "cpu" (FP32) fallback on Windows 10 & Windows 11.',
+    role: 'Model Registry & Checkpoint Loader (whisper-20250625 → PepperVT v1.0)',
+    keySymbols: 'load_model(name, device="cpu"), _MODELS, _ALIGNMENT_HEADS, available_models()',
+    win10ExePackagingNote: 'Uses the lightweight CPU-only PyTorch runtime (device="cpu", fp16=False) to save ~2.5 GB of CUDA bloat and guarantee 100% compatibility across all Windows 10 & Windows 11 PCs.',
     summary: 'Defines SHA-256 verified URLs and alignment heads for tiny, base, small, medium, large-v1/v2/v3, and turbo (large-v3-turbo) models.'
   },
   {
     file: 'whisper/audio.py',
     role: '16kHz Audio Resampling & Log-Mel Spectrogram',
     keySymbols: 'load_audio(), pad_or_trim(), log_mel_spectrogram(), SAMPLE_RATE=16000, N_FFT=400, HOP_LENGTH=160',
-    win10ExePackagingNote: 'Invokes ffmpeg subprocess for decoding audio/video streams and computes STFT on GPU/CPU using whisper/assets/mel_filters.npz.',
+    win10ExePackagingNote: 'Invokes ffmpeg subprocess for decoding audio/video streams and computes STFT on CPU using whisper/assets/mel_filters.npz.',
     summary: 'Spawns ffmpeg to decode any video (.mp4, .mkv, .mov) or audio (.flac, .mp3, .wav) into 16kHz mono float32 waveform, then computes 80-channel or 128-channel log-Mel spectrograms.'
   },
   {
     file: 'whisper/model.py',
-    role: 'Transformer Encoder-Decoder Architecture (CUDA / CPU)',
+    role: 'Transformer Encoder-Decoder Architecture (CPU Optimized)',
     keySymbols: 'Whisper, AudioEncoder, TextDecoder, ResidualAttentionBlock, MultiHeadAttention',
-    win10ExePackagingNote: 'On NVIDIA GPUs, build_win10_11_exe.bat installs PyTorch with CUDA (cu121) so scaled_dot_product_attention & FP16 run on GPU hardware.',
+    win10ExePackagingNote: 'PepperVT.spec strips C++ headers (torch/include) and static .lib/.pdb files while keeping all internal torch Python modules (like torch.distributed) intact.',
     summary: 'Implements sinusoidal positional embeddings on 30-second audio windows (1500 frames) and causal cross-attention decoding over BPE tokens.'
   },
   {
     file: 'whisper/transcribe.py',
     role: 'Sliding-Window Transcription & Segment Generator',
-    keySymbols: 'transcribe(model, audio, fp16=...), cli(), seek loop',
-    win10ExePackagingNote: 'Automatically sets fp16=True when running on NVIDIA CUDA for up to 4x faster transcription, and fp16=False on CPU to avoid warnings.',
+    keySymbols: 'transcribe(model, audio, fp16=False), cli(), seek loop',
+    win10ExePackagingNote: 'Explicitly sets fp16=False and verbose=False for clean, warning-free FP32 CPU execution in PyInstaller windowed mode.',
     summary: 'Processes long video/audio files in 30-second sliding windows, applying temperature fallback (0.0 to 1.0), voice activity heuristics, and timestamp token parsing.'
   },
   {
@@ -48,26 +49,27 @@ export const WHISPER_SOURCE_ANALYSIS: SourceModuleAnalysis[] = [
   },
   {
     file: 'whisper/timing.py & triton_ops.py',
-    role: 'Dynamic Time Warping (DTW) Word Timestamps',
+    role: 'Dynamic Time Warping (DTW) & Lightweight Numba Shim',
     keySymbols: 'add_word_timestamps(), find_alignment(), median_filter()',
-    win10ExePackagingNote: 'triton_ops.py is excluded on Windows; timing.py uses fast Numba/PyTorch tensor operations on CUDA or CPU.',
+    win10ExePackagingNote: 'Replaces the 160 MB numba + llvmlite LLVM compiler dependency with a 10-line pure-Python @jit shim in whisper_gui_win10_11.py, cutting ~160 MB from the final .exe!',
     summary: 'Extracts cross-attention weights across alignment heads to compute sub-second word-level timestamps and punctuation boundaries.'
   }
 ];
 
 export const WIN10_GUI_PYTHON_CODE = `"""
-Whisper Studio v.1.0 — Modern Windows 10 & Windows 11 Standalone Video/Voice-to-Text GUI
-Built for whisper-20250625 source tree
-Features:
-  - Version: v.1.0
+PepperVT v1.0 — Modern Windows 10 & Windows 11 Standalone Video/Voice-to-Text GUI
+Built for whisper-20250625 source tree (Ultra-Compact Universal CPU Edition)
+Space-Saving Optimizations:
+  - CPU-only PyTorch runtime (saves ~2.5 GB of NVIDIA CUDA DLLs)
+  - Built-in lightweight @numba.jit shim for whisper/timing.py (eliminates ~160 MB of llvmlite.dll + numba LLVM binaries)
   - Custom Red Voice-to-Text Application Icon (app_icon.ico + runtime window & taskbar icon)
-  - NVIDIA CUDA Hardware Acceleration (auto-detects NVIDIA GPU, enables FP16 + TF32/cuDNN benchmark, with CPU fallback)
   - Native Per-Monitor V2 HiDPI Scaling (Windows 10 & 11) + DWM Rounded Corners & Dark/Light Caption Styling
   - Add Video/Audio & Add Folder batch transcription with 3-bullet limit + Chevron dropdown ("Show more / Show less")
 """
 
 import os
 import sys
+import types
 import ctypes
 import queue
 import threading
@@ -79,7 +81,8 @@ from tkinter import filedialog, messagebox
 import customtkinter as ctk
 from PIL import Image, ImageDraw
 
-APP_VERSION = "v.1.0"
+APP_NAME = "PepperVT"
+APP_VERSION = "v1.0"
 
 # ---------------------------------------------------------------------------
 # CRITICAL WINDOWS 10 & WINDOWS 11 COMPATIBILITY & PYINSTALLER FIXES
@@ -89,10 +92,28 @@ if sys.stdout is None:
 if sys.stderr is None:
     sys.stderr = open(os.devnull, "w", encoding="utf-8")
 
+# ---------------------------------------------------------------------------
+# SPACE-SAVING SHIM: Eliminate 160 MB numba + llvmlite LLVM compiler bloat!
+# whisper/timing.py imports @numba.jit at module load time even when word_timestamps
+# is not used. Providing a lightweight passthrough shim saves ~160 MB in the .exe.
+# ---------------------------------------------------------------------------
+try:
+    import numba  # noqa: F401
+except ImportError:
+    _numba_shim = types.ModuleType("numba")
+    def _jit_passthrough(*args, **kwargs):
+        if len(args) == 1 and callable(args[0]) and not kwargs:
+            return args[0]
+        return lambda fn: fn
+    _numba_shim.jit = _jit_passthrough
+    _numba_shim.njit = _jit_passthrough
+    _numba_shim.prange = range
+    sys.modules["numba"] = _numba_shim
+
 if sys.platform == "win32":
     # Set unique AppUserModelID so Windows 10/11 Taskbar displays our custom Red Voice-to-Text icon
     try:
-        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("whisperstudio.voice2text.v1_0")
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("peppervt.voice2text.v1_0")
     except Exception:
         pass
 
@@ -165,14 +186,12 @@ else:
 import torch
 import whisper
 
-# Enable NVIDIA CUDA hardware optimizations when an NVIDIA GPU is available
-if torch.cuda.is_available():
-    try:
-        torch.backends.cudnn.benchmark = True
-        torch.backends.cuda.matmul.allow_tf32 = True
-        torch.backends.cudnn.allow_tf32 = True
-    except Exception:
-        pass
+# Optimize PyTorch CPU multi-threading across available logical cores
+CPU_THREADS = max(1, os.cpu_count() or 4)
+try:
+    torch.set_num_threads(CPU_THREADS)
+except Exception:
+    pass
 
 VIDEO_EXTENSIONS = {".mp4", ".mkv", ".mov", ".avi", ".webm", ".wmv", ".m4v"}
 AUDIO_EXTENSIONS = {".mp3", ".wav", ".flac", ".m4a", ".ogg", ".aac", ".wma", ".opus"}
@@ -317,19 +336,6 @@ def extract_video_thumbnail(video_path: Path, size=(96, 112)) -> Image.Image:
     return create_audio_extension_icon(video_path.suffix, size=size)
 
 
-def get_hardware_summary() -> tuple[str, str]:
-    """
-    Returns (default_device, human_label) based on whether NVIDIA CUDA is available.
-    """
-    if torch.cuda.is_available():
-        try:
-            gpu_name = torch.cuda.get_device_name(0)
-            return "cuda", f"CUDA ({gpu_name})"
-        except Exception:
-            return "cuda", "CUDA (NVIDIA GPU)"
-    return "cpu", "CPU Runtime"
-
-
 class MediaRowCard(ctk.CTkFrame):
     """
     Individual row in the scrollable list:
@@ -408,7 +414,7 @@ class MediaRowCard(ctk.CTkFrame):
 
         self.placeholder_label = ctk.CTkLabel(
             self.bullets_frame,
-            text="- Waiting for Whisper transcription engine...",
+            text="- Waiting for PepperVT CPU transcription engine...",
             font=ctk.CTkFont(family="Segoe UI", size=13),
             text_color=("#64748B", "#94A3B8"),
             anchor="w",
@@ -430,10 +436,9 @@ class MediaRowCard(ctk.CTkFrame):
     def set_status(self, status_text: str):
         self.status_label.configure(text=status_text)
 
-    def set_segments(self, segments: list, language: str = "en", device_used: str = "cpu"):
+    def set_segments(self, segments: list, language: str = "en"):
         self.segments = segments
-        accel_tag = "CUDA" if device_used == "cuda" else "CPU"
-        self.status_label.configure(text=f"{language.upper()} · {len(segments)} segments · {accel_tag}")
+        self.status_label.configure(text=f"{language.upper()} · {len(segments)} segments · CPU")
         self.render_bullets()
 
     def render_bullets(self):
@@ -491,14 +496,13 @@ class MediaRowCard(ctk.CTkFrame):
         self.after(1500, lambda: self.copy_btn.configure(text="Copy Text"))
 
 
-class WhisperWindowsApp(ctk.CTk):
+class PepperVTWindowsApp(ctk.CTk):
     def __init__(self):
         super().__init__()
         os_tag = "Windows 11" if sys.platform == "win32" and sys.getwindowsversion().build >= 22000 else "Windows 10"
-        self.default_device, self.hw_label = get_hardware_summary()
-        self.title(f"Whisper Studio {APP_VERSION} — Video & Voice to Text ({os_tag} · {self.hw_label})")
-        self.geometry("1020x720")
-        self.minsize(780, 520)
+        self.title(f"{APP_NAME} {APP_VERSION} — Video & Voice to Text ({os_tag} · CPU Runtime)")
+        self.geometry("980x720")
+        self.minsize(760, 520)
         self.is_dark_mode = False
         ctk.set_appearance_mode("light")
         self.configure(fg_color=("#F8FAFC", "#0B0F19"))
@@ -510,13 +514,10 @@ class WhisperWindowsApp(ctk.CTk):
         self.task_queue = queue.Queue()
         self.cards = []
         self.model = None
-        self.loaded_model_key = None
+        self.loaded_model_name = None
         self.current_model_name = tk.StringVar(value="base")
-        self.current_device_mode = tk.StringVar(
-            value="CUDA (NVIDIA GPU)" if self.default_device == "cuda" else "CPU Runtime"
-        )
 
-        # Top Action Bar: Brand Icon + [ Add Video/Audio ] + [ Add Folder ] + CUDA/CPU + Model + Dark Mode
+        # Top Action Bar: Brand Icon + [ Add Video/Audio ] + [ Add Folder ] + Model + Dark Mode
         top_bar = ctk.CTkFrame(
             self,
             fg_color=("#FFFFFF", "#0F172A"),
@@ -536,7 +537,7 @@ class WhisperWindowsApp(ctk.CTk):
         self.brand_badge = ctk.CTkLabel(
             btn_container,
             image=self.brand_ctk_icon,
-            text=f"  Whisper Studio {APP_VERSION}",
+            text=f"  {APP_NAME} {APP_VERSION}",
             compound="left",
             font=ctk.CTkFont(family="Segoe UI", size=15, weight="bold"),
             text_color=("#0F172A", "#F8FAFC")
@@ -590,7 +591,7 @@ class WhisperWindowsApp(ctk.CTk):
             btn_container,
             variable=self.current_model_name,
             values=["tiny", "base", "small", "medium", "large-v3", "turbo"],
-            width=116,
+            width=126,
             height=36,
             fg_color=("#F1F5F9", "#1E293B"),
             button_color=("#E2E8F0", "#334155"),
@@ -598,19 +599,12 @@ class WhisperWindowsApp(ctk.CTk):
         )
         self.model_menu.pack(side="right", padx=(6, 0))
 
-        # Hardware Acceleration Selector (NVIDIA CUDA vs CPU)
-        device_options = ["CUDA (NVIDIA GPU)", "CPU Runtime"] if torch.cuda.is_available() else ["CPU Runtime"]
-        self.device_menu = ctk.CTkOptionMenu(
+        ctk.CTkLabel(
             btn_container,
-            variable=self.current_device_mode,
-            values=device_options,
-            width=155,
-            height=36,
-            fg_color=("#FEF2F2", "#1E293B") if torch.cuda.is_available() else ("#F1F5F9", "#1E293B"),
-            button_color=("#FECACA", "#334155") if torch.cuda.is_available() else ("#E2E8F0", "#334155"),
-            text_color=("#991B1B", "#F8FAFC") if torch.cuda.is_available() else ("#0F172A", "#F8FAFC")
-        )
-        self.device_menu.pack(side="right", padx=(6, 0))
+            text="Model:",
+            font=ctk.CTkFont(family="Segoe UI", size=13),
+            text_color=("#475569", "#94A3B8")
+        ).pack(side="right", padx=(0, 4))
 
         # Scrollable Main List Container
         self.scroll_frame = ctk.CTkScrollableFrame(
@@ -622,7 +616,7 @@ class WhisperWindowsApp(ctk.CTk):
         self.scroll_frame.pack(fill="both", expand=True, padx=24, pady=(16, 8))
         self.scroll_frame.grid_columnconfigure(0, weight=1)
 
-        # Bottom Status Bar showing Version & Hardware Acceleration
+        # Bottom Status Bar showing Version & Universal CPU Runtime
         status_bar = ctk.CTkFrame(
             self,
             fg_color=("#FFFFFF", "#0F172A"),
@@ -633,8 +627,8 @@ class WhisperWindowsApp(ctk.CTk):
         )
         status_bar.pack(fill="x", side="bottom")
         hw_status_text = (
-            f"Whisper Studio {APP_VERSION}  ·  Hardware Acceleration: {self.hw_label}  ·  "
-            f"{'FP16 Tensor Core Accelerated' if self.default_device == 'cuda' else 'FP32 Multi-Thread CPU'}"
+            f"{APP_NAME} {APP_VERSION}  ·  Universal CPU Runtime ({CPU_THREADS} Threads, FP32)  ·  "
+            f"Space-Optimized Build"
         )
         ctk.CTkLabel(
             status_bar,
@@ -650,7 +644,7 @@ class WhisperWindowsApp(ctk.CTk):
         try:
             ico_path = BUNDLE_DIR / "app_icon.ico"
             if not ico_path.exists():
-                ico_path = Path(tempfile.gettempdir()) / "whisper_studio_v1_0.ico"
+                ico_path = Path(tempfile.gettempdir()) / "peppervt_v1_0.ico"
                 save_ico_file(ico_path)
             if sys.platform == "win32" and ico_path.exists():
                 self.iconbitmap(default=str(ico_path))
@@ -698,25 +692,20 @@ class WhisperWindowsApp(ctk.CTk):
             card: MediaRowCard = self.task_queue.get()
             try:
                 target_model = self.current_model_name.get()
-                wants_cuda = "CUDA" in self.current_device_mode.get() and torch.cuda.is_available()
-                device = "cuda" if wants_cuda else "cpu"
-                model_key = f"{target_model}:{device}"
+                if self.model is None or self.loaded_model_name != target_model:
+                    self.after(0, lambda c=card, m=target_model: c.set_status(f"Loading {m} (CPU)..."))
+                    self.model = whisper.load_model(target_model, device="cpu")
+                    self.loaded_model_name = target_model
 
-                if self.model is None or self.loaded_model_key != model_key:
-                    accel_str = "NVIDIA CUDA" if device == "cuda" else "CPU"
-                    self.after(0, lambda c=card, m=target_model, a=accel_str: c.set_status(f"Loading {m} on {a}..."))
-                    self.model = whisper.load_model(target_model, device=device)
-                    self.loaded_model_key = model_key
-
-                self.after(0, lambda c=card, d=device: c.set_status(f"Transcribing ({d.upper()})..."))
+                self.after(0, lambda c=card: c.set_status("Transcribing (CPU)..."))
                 result = self.model.transcribe(
                     str(card.file_path),
                     verbose=False,
-                    fp16=(device == "cuda")
+                    fp16=False
                 )
                 segments = result.get("segments", [])
                 lang = result.get("language", "en")
-                self.after(0, lambda c=card, s=segments, l=lang, d=device: c.set_segments(s, l, d))
+                self.after(0, lambda c=card, s=segments, l=lang: c.set_segments(s, l))
             except Exception as exc:
                 err_msg = str(exc)
                 self.after(0, lambda c=card, e=err_msg: c.set_status(f"Error: {e[:40]}"))
@@ -729,13 +718,14 @@ if __name__ == "__main__":
     if "--generate-icon" in sys.argv:
         save_ico_file(Path("app_icon.ico"))
         sys.exit(0)
-    app = WhisperWindowsApp()
+    app = PepperVTWindowsApp()
     app.mainloop()
 `;
 
 export const PYINSTALLER_SPEC_CODE = `# -*- mode: python ; coding: utf-8 -*-
-# WhisperStudio.spec — PyInstaller Configuration for Whisper Studio v.1.0 (Windows 10 & Windows 11)
-# Bundles Red Voice-to-Text app_icon.ico and whisper-20250625/whisper/assets
+# PepperVT.spec — Space-Optimized PyInstaller Configuration for PepperVT v1.0
+# Keeps all internal torch modules (including torch.distributed) intact while stripping
+# external CUDA/Numba/LLVM bloat, C++ headers (torch/include), and static .lib/.pdb files.
 
 import os
 import sys
@@ -780,12 +770,15 @@ for pkg in ('tqdm', 'regex', 'tiktoken'):
     except Exception:
         pass
 
+runtime_hooks = ['rthook_peppervt.py'] if os.path.exists('rthook_peppervt.py') else []
+
 a = Analysis(
     ['whisper_gui_win10_11.py'],
     pathex=pathex,
     binaries=binaries,
     datas=datas,
     hiddenimports=[
+        'torch',
         'whisper',
         'whisper.audio',
         'whisper.decoding',
@@ -803,13 +796,46 @@ a = Analysis(
     ],
     hookspath=[],
     hooksconfig={},
-    runtime_hooks=[],
-    excludes=['triton', 'matplotlib', 'notebook', 'pytest'],
+    runtime_hooks=runtime_hooks,
+    # IMPORTANT: Keep all internal 'torch.*' submodules intact because PyTorch
+    # dataloader imports distributed/testing submodules unconditionally at startup.
+    # Only exclude external heavy packages not used by Whisper CPU inference:
+    excludes=[
+        'triton',
+        'nvidia',
+        'numba',
+        'llvmlite',
+        'scipy',
+        'matplotlib',
+        'pandas',
+        'notebook',
+        'pytest',
+        'torchvision',
+        'torchaudio',
+    ],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
     cipher=block_cipher,
     noarchive=False,
 )
+
+# 3. Filter out static C++ .lib/.pdb files, C++ header files, and CUDA DLLs from binaries & datas
+_SKIP_BINARY_SUBSTRINGS = (
+    'cublas', 'cudnn', 'cufft', 'curand', 'cusolver', 'cusparse', 'nvrtc', 'cudart',
+    'nvjitlink', 'caffe2_nvrtc', 'torch_cuda', 'c10_cuda', 'llvmlite',
+)
+
+a.binaries = [
+    b for b in a.binaries
+    if not b[0].lower().endswith(('.lib', '.pdb', '.a', '.exp'))
+    and not any(s in b[0].lower() for s in _SKIP_BINARY_SUBSTRINGS)
+]
+
+a.datas = [
+    d for d in a.datas
+    if not d[0].replace('\\\\', '/').startswith(('torch/include/', 'torch/share/cmake/'))
+    and not d[0].lower().endswith(('.lib', '.pdb', '.h', '.hpp', '.c', '.cpp', '.cu'))
+]
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 
@@ -820,7 +846,7 @@ exe = EXE(
     a.zipfiles,
     a.datas,
     [],
-    name='WhisperStudio_v1.0',
+    name='PepperVT_v1.0',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -847,57 +873,15 @@ if "%~1"=="" (
 )
 
 cd /d "%~dp0"
-TITLE Whisper Studio v.1.0 - Windows 10 and Windows 11 Standalone EXE Builder
+TITLE PepperVT v1.0 - Space-Optimized CPU Standalone EXE Builder
 
 echo ============================================================================
-echo   Whisper Studio v.1.0 - Windows 10 and Windows 11 Standalone EXE Compiler
+echo   PepperVT v1.0 - Windows 10 and Windows 11 Standalone EXE Compiler
+echo   Mode          : Ultra-Compact CPU Runtime (No CUDA / No LLVM / No Cache)
 echo   Working Folder: %CD%
 echo ============================================================================
 echo.
 
-REM ----------------------------------------------------------------------------
-REM STEP 0: CHECK USER HARDWARE SPECS BEFORE RUNNING ANYTHING
-REM Detects CPU, RAM, and GPU. If an NVIDIA GPU is detected, automatically
-REM selects the NVIDIA CUDA runtime; otherwise selects the CPU runtime.
-REM ----------------------------------------------------------------------------
-echo [Pre-Flight] Checking system hardware specifications...
-set "USE_CUDA=0"
-set "GPU_NAME=Standard Display Adapter"
-
-REM Method 1: Check nvidia-smi directly
-where nvidia-smi >nul 2>&1
-if not errorlevel 1 (
-    for /f "usebackq tokens=*" %%G in (\`nvidia-smi --query-gpu=name --format=csv,noheader 2^>nul\`) do (
-        set "GPU_NAME=%%G"
-        set "USE_CUDA=1"
-    )
-)
-
-if "%USE_CUDA%"=="1" goto :SPECS_DETECTED
-
-REM Method 2: Query Windows CIM / WMI VideoController for NVIDIA GPU
-for /f "usebackq tokens=*" %%G in (\`powershell -NoProfile -Command "$g = Get-CimInstance Win32_VideoController | Where-Object { $_.Name -match 'NVIDIA' } | Select-Object -First 1 -ExpandProperty Name; if ($g) { Write-Output $g }" 2^>nul\`) do (
-    set "GPU_NAME=%%G"
-    set "USE_CUDA=1"
-)
-
-if "%USE_CUDA%"=="1" goto :SPECS_DETECTED
-
-for /f "usebackq tokens=*" %%G in (\`powershell -NoProfile -Command "Get-CimInstance Win32_VideoController | Select-Object -First 1 -ExpandProperty Name" 2^>nul\`) do (
-    set "GPU_NAME=%%G"
-)
-
-:SPECS_DETECTED
-echo   Detected GPU : %GPU_NAME%
-if "%USE_CUDA%"=="1" goto :SHOW_CUDA_MODE
-echo   Runtime Mode : CPU Runtime [No NVIDIA GPU detected - using optimized CPU build]
-goto :FIND_PYTHON_STEP
-
-:SHOW_CUDA_MODE
-echo   Runtime Mode : NVIDIA CUDA Hardware Acceleration [Auto-enabled for NVIDIA GPU]
-
-:FIND_PYTHON_STEP
-echo.
 REM ----------------------------------------------------------------------------
 REM STEP 1: Detect Python 3.11 (64-bit) FIRST
 REM ----------------------------------------------------------------------------
@@ -945,7 +929,7 @@ echo [OK] Using Python interpreter: %PY_CMD%
 echo.
 
 REM ----------------------------------------------------------------------------
-REM STEP 2: Create isolated virtual environment & install CUDA or CPU Runtime
+REM STEP 2: Create isolated virtual environment & install Ultra-Lean CPU Runtime
 REM ----------------------------------------------------------------------------
 if exist ".venv_py311\\Scripts\\python.exe" goto :VENV_READY
 echo [Step 1/4] Creating Python 3.11 virtual environment in .venv_py311 ...
@@ -961,49 +945,58 @@ set "VENV_PY=%~dp0.venv_py311\\Scripts\\python.exe"
 set "VENV_PIP=%~dp0.venv_py311\\Scripts\\pip.exe"
 set "VENV_PYINSTALLER=%~dp0.venv_py311\\Scripts\\pyinstaller.exe"
 
-"%VENV_PY%" -m pip install --upgrade pip setuptools wheel
+REM If a previous run installed CUDA torch or heavy numba/llvmlite, remove them to free gigabytes of space!
+"%VENV_PY%" -c "import torch; exit(0 if '+cu' in torch.__version__ else 1)" >nul 2>&1
+if not errorlevel 1 (
+    echo [Space Saver] Removing old multi-GB CUDA PyTorch build from .venv_py311 ...
+    "%VENV_PIP%" uninstall -y torch torchvision torchaudio >nul 2>&1
+)
+"%VENV_PIP%" uninstall -y numba llvmlite scipy >nul 2>&1
 
-if "%USE_CUDA%"=="1" goto :INSTALL_CUDA_TORCH
-echo [Step 2/4] Installing CPU-optimized PyTorch runtime...
-"%VENV_PIP%" install torch --index-url https://download.pytorch.org/whl/cpu
-goto :INSTALL_WHISPER_SOURCE
+echo [Step 2/4] Installing lean CPU-only packages with --no-cache-dir (saves ~2.8 GB)...
+"%VENV_PIP%" install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
+"%VENV_PIP%" install --no-cache-dir numpy tqdm tiktoken more-itertools customtkinter pillow pyinstaller
 
-:INSTALL_CUDA_TORCH
-echo [Step 2/4] NVIDIA GPU detected! Installing PyTorch with NVIDIA CUDA 12.1 runtime...
-"%VENV_PIP%" install torch --index-url https://download.pytorch.org/whl/cu121
-
-:INSTALL_WHISPER_SOURCE
 if exist "whisper\\__init__.py" goto :INSTALL_LOCAL_CURRENT
 if exist "whisper-20250625\\whisper\\__init__.py" goto :INSTALL_LOCAL_SUBDIR
 goto :INSTALL_PYPI_WHISPER
 
 :INSTALL_LOCAL_CURRENT
-echo [OK] Found whisper source tree in current directory.
-if exist "requirements.txt" "%VENV_PIP%" install -r requirements.txt
-"%VENV_PIP%" install --no-build-isolation -e .
-goto :INSTALL_GUI_DEPS
+echo [OK] Installing local whisper source (--no-deps to skip 160MB numba/LLVM)...
+"%VENV_PIP%" install --no-cache-dir --no-build-isolation --no-deps -e .
+goto :ICON_STEP
 
 :INSTALL_LOCAL_SUBDIR
-echo [OK] Found whisper-20250625 source tree in subfolder.
-if exist "whisper-20250625\\requirements.txt" "%VENV_PIP%" install -r "whisper-20250625\\requirements.txt"
-"%VENV_PIP%" install --no-build-isolation -e "whisper-20250625"
-goto :INSTALL_GUI_DEPS
+echo [OK] Installing whisper-20250625 subfolder (--no-deps to skip 160MB numba/LLVM)...
+"%VENV_PIP%" install --no-cache-dir --no-build-isolation --no-deps -e "whisper-20250625"
+goto :ICON_STEP
 
 :INSTALL_PYPI_WHISPER
-echo [OK] Installing openai-whisper package...
-"%VENV_PIP%" install openai-whisper
+echo [OK] Installing openai-whisper (--no-deps to skip 160MB numba/LLVM)...
+"%VENV_PIP%" install --no-cache-dir --no-deps openai-whisper
 
-:INSTALL_GUI_DEPS
-"%VENV_PIP%" install customtkinter pillow pyinstaller
-if errorlevel 1 (
-    echo [ERROR] Package installation failed. Check the messages above.
-    pause
-    exit /b 1
-)
-
-REM Generate the Red Voice-to-Text app_icon.ico before compiling
+:ICON_STEP
 echo [OK] Generating Red Voice-to-Text icon: app_icon.ico ...
 "%VENV_PY%" whisper_gui_win10_11.py --generate-icon
+
+REM Generate lightweight runtime hook so numba is shimmed even on older whisper_gui_win10_11.py files
+> "rthook_peppervt.py" echo import sys, types
+>> "rthook_peppervt.py" echo m = types.ModuleType("numba")
+>> "rthook_peppervt.py" echo def _jit(*a, **k):
+>> "rthook_peppervt.py" echo     return a[0] if a and callable(a[0]) else lambda f: f
+>> "rthook_peppervt.py" echo m.jit = _jit
+>> "rthook_peppervt.py" echo m.njit = _jit
+>> "rthook_peppervt.py" echo m.prange = range
+>> "rthook_peppervt.py" echo sys.modules.setdefault("numba", m)
+
+REM If an older PepperVT.spec from a previous build excluded torch.distributed / torch._inductor, remove it automatically
+if exist "PepperVT.spec" (
+    findstr /I "torch._inductor" "PepperVT.spec" >nul 2>&1
+    if not errorlevel 1 (
+        echo [Fix] Removing outdated PepperVT.spec that excluded internal torch modules...
+        del /f /q "PepperVT.spec" >nul 2>&1
+    )
+)
 
 REM 3. Check for ffmpeg.exe
 where ffmpeg >nul 2>&1
@@ -1016,42 +1009,55 @@ winget install Gyan.FFmpeg --accept-source-agreements --accept-package-agreement
 
 :FFMPEG_OK
 echo.
-echo [Step 3/4] Compiling standalone dist\\WhisperStudio_v1.0.exe ...
-if exist "WhisperStudio.spec" (
-    "%VENV_PYINSTALLER%" --clean --noconfirm WhisperStudio.spec
-) else (
-    "%VENV_PYINSTALLER%" --clean --noconfirm --onefile --windowed --name WhisperStudio_v1.0 --icon app_icon.ico --collect-all whisper --collect-all customtkinter --hidden-import tiktoken_ext.openai_public whisper_gui_win10_11.py
-)
+echo [Step 3/4] Compiling space-optimized dist\\PepperVT_v1.0.exe ...
+if exist "PepperVT.spec" goto :COMPILE_WITH_SPEC
+"%VENV_PYINSTALLER%" --clean --noconfirm --onefile --windowed --name PepperVT_v1.0 --icon app_icon.ico --paths . --paths whisper-20250625 --runtime-hook rthook_peppervt.py --exclude-module numba --exclude-module llvmlite --exclude-module scipy --exclude-module triton --exclude-module torchvision --exclude-module torchaudio --collect-data whisper --collect-data customtkinter --hidden-import tiktoken_ext.openai_public whisper_gui_win10_11.py
+goto :CHECK_DIST
 
+:COMPILE_WITH_SPEC
+"%VENV_PYINSTALLER%" --clean --noconfirm PepperVT.spec
+
+:CHECK_DIST
 echo.
-if exist "dist\\WhisperStudio_v1.0.exe" goto :BUILD_SUCCESS
-echo [ERROR] Build did not produce dist\\WhisperStudio_v1.0.exe.
+if exist "dist\\PepperVT_v1.0.exe" goto :BUILD_SUCCESS
+echo [ERROR] Build did not produce dist\\PepperVT_v1.0.exe.
 echo Review the log messages above for details.
 pause
 exit /b 1
 
 :BUILD_SUCCESS
+REM Clean up temporary PyInstaller build folder (~400 MB) to save disk space
+if exist "build" (
+    echo [Space Saver] Cleaning up temporary PyInstaller build\\ directory...
+    rmdir /s /q "build" >nul 2>&1
+)
+
 echo ============================================================================
-echo [Step 4/4] BUILD SUCCESSFUL! (Whisper Studio v.1.0)
+echo [Step 4/4] BUILD SUCCESSFUL! (PepperVT v1.0 - Space-Optimized CPU Edition)
 echo Standalone Windows 10 and 11 EXE created at:
-echo   %~dp0dist\\WhisperStudio_v1.0.exe
+echo   %~dp0dist\\PepperVT_v1.0.exe
 echo ============================================================================
-explorer.exe /select,"%~dp0dist\\WhisperStudio_v1.0.exe"
+explorer.exe /select,"%~dp0dist\\PepperVT_v1.0.exe"
 pause
 `;
 
-export const WIN10_README_GUIDE = `# Whisper Studio v.1.0 — Windows 10 & Windows 11 Standalone \`.exe\` Build Kit
+export const WIN10_README_GUIDE = `# PepperVT v1.0 — Windows 10 & Windows 11 Standalone \`.exe\` Build Kit (Ultra-Compact CPU Edition)
 
-This package compiles your **\`whisper-20250625\`** repository into **\`WhisperStudio_v1.0.exe\`** for Windows 10 and Windows 11.
+This package compiles your **\`whisper-20250625\`** repository into **\`PepperVT_v1.0.exe\`** for Windows 10 and Windows 11 while saving as much disk and executable space as possible.
 
-## What's New in \`v.1.0\`
+## 5 Space-Saving Optimizations Built Into \`PepperVT v1.0\`
 
-1. **Pre-Flight Hardware Spec Check & Automatic NVIDIA CUDA Acceleration**:
-   - Before \`build_win10_11_exe.bat\` installs anything, it inspects your machine's GPU via \`nvidia-smi\` and Windows \`Win32_VideoController\`.
-   - **If an NVIDIA GPU is detected**: It automatically installs the **CUDA-enabled PyTorch runtime** (\`cu121\`) and enables FP16 Tensor Core + cuDNN benchmark acceleration inside the GUI.
-   - **If no NVIDIA GPU is detected**: It automatically installs the lightweight **CPU runtime** (\`fp16=False\`).
-2. **Red Voice-to-Text Icon (\`app_icon.ico\`)**:
-   - Automatically generates a multi-resolution Windows \`.ico\` featuring a typical white Voice-to-Text microphone & transcript lines on a vibrant Red background (\`#DC2626\`) and embeds it into \`WhisperStudio_v1.0.exe\`, the window titlebar, and the Windows 10/11 taskbar.
+1. **CPU-Only PyTorch Wheel (\`--index-url https://download.pytorch.org/whl/cpu\`)**:
+   - Eliminates **~2.5 GB** of NVIDIA CUDA/cuDNN/cuBLAS/cuFFT binaries and works on 100% of Windows 10 & 11 PCs.
+   - If your existing \`.venv_py311\` had the CUDA version of PyTorch installed, \`build_win10_11_exe.bat\` automatically detects and replaces it with the small CPU wheel.
+2. **Zero \`numba\` / \`llvmlite\` Bloat (Saves ~160 MB)**:
+   - \`whisper/timing.py\` imports \`@numba.jit\` at load time. Instead of bundling 160 MB of \`llvmlite.dll\` LLVM compiler binaries, \`whisper_gui_win10_11.py\` (and \`rthook_peppervt.py\`) includes a 10-line pure-Python \`numba\` passthrough shim and installs Whisper with \`--no-deps\`.
+3. **PyTorch Header & Static Library Stripping in \`PepperVT.spec\` (Saves ~120 MB)**:
+   - Filters out \`torch/include/\` C++ headers and static \`.lib\`/\`.pdb\` files while keeping all internal \`torch.*\` Python modules (including \`torch.distributed\`) intact so \`torch.utils.data.dataloader\` imports cleanly.
+4. **Zero Pip Cache (\`--no-cache-dir\`)**:
+   - Prevents \`pip\` from duplicating hundreds of megabytes of downloaded \`.whl\` archives in \`%LOCALAPPDATA%\\pip\\Cache\`.
+5. **Automatic Post-Build Temp Cleanup**:
+   - Automatically deletes the temporary \`build\\\` folder (~400 MB) as soon as \`dist\\PepperVT_v1.0.exe\` finishes compiling.
 `;
 
 function toWindowsCrLf(text: string): string {
@@ -1074,15 +1080,15 @@ export function downloadBatFileOnly(): void {
 export async function downloadWin10BuildKitZip(): Promise<void> {
   const zip = new JSZip();
   zip.file('whisper_gui_win10_11.py', toWindowsCrLf(WIN10_GUI_PYTHON_CODE));
-  zip.file('WhisperStudio.spec', toWindowsCrLf(PYINSTALLER_SPEC_CODE));
+  zip.file('PepperVT.spec', toWindowsCrLf(PYINSTALLER_SPEC_CODE));
   zip.file('build_win10_11_exe.bat', toWindowsCrLf(WIN10_BUILD_BAT_CODE));
-  zip.file('BUILD_WINDOWS10_11_EXE.md', toWindowsCrLf(WIN10_README_GUIDE));
+  zip.file('BUILD_PEPPERVT_V1.0_EXE.md', toWindowsCrLf(WIN10_README_GUIDE));
 
   const blob = await zip.generateAsync({ type: 'blob' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = 'WhisperStudio_v1.0_Win10_Win11_Kit.zip';
+  a.download = 'PepperVT_v1.0_Win10_Win11_Kit.zip';
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);

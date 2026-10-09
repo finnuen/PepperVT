@@ -263,7 +263,7 @@ export function exportAllTranscriptsTxt(items: MediaTranscriptItem[]): void {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = 'whisper_transcripts_export.txt';
+  a.download = 'peppervt_v1.0_transcripts.txt';
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);

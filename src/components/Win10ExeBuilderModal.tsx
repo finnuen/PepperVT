@@ -75,10 +75,10 @@ export const Win10ExeBuilderModal: React.FC<Win10ExeBuilderModalProps> = ({
         <div className="flex items-center justify-between gap-4 px-6 py-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/90">
           <div>
             <h2 className="text-lg font-bold text-slate-900 dark:text-slate-100">
-              Windows 10 & Windows 11 Standalone .EXE Builder & Source Analysis
+              PepperVT v1.0 — Windows 10 & Windows 11 Standalone .EXE Builder
             </h2>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-              Analyzed from uploaded <span className="font-mono text-slate-700 dark:text-slate-300">whisper-20250625</span> source tree · PyInstaller single-file <span className="font-mono text-slate-700 dark:text-slate-300">WhisperStudio_Win10_Win11.exe</span> kit
+              Analyzed from uploaded <span className="font-mono text-slate-700 dark:text-slate-300">whisper-20250625</span> source tree · PyInstaller single-file <span className="font-mono text-slate-700 dark:text-slate-300">PepperVT_v1.0.exe</span> kit
             </p>
           </div>
 
@@ -156,7 +156,7 @@ export const Win10ExeBuilderModal: React.FC<Win10ExeBuilderModalProps> = ({
             }`}
           >
             <FileCode className="w-3.5 h-3.5" />
-            <span>03. WhisperStudio.spec (PyInstaller)</span>
+            <span>03. PepperVT.spec (PyInstaller)</span>
           </button>
 
           <button
@@ -236,10 +236,10 @@ export const Win10ExeBuilderModal: React.FC<Win10ExeBuilderModalProps> = ({
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-mono text-slate-500 dark:text-slate-400">
-                  {activeTab === 'gui_py' && 'whisper_gui_win10_11.py — Put in whisper-20250625/ root'}
-                  {activeTab === 'spec' && 'WhisperStudio.spec — PyInstaller asset & hiddenimport manifest'}
-                  {activeTab === 'bat' && 'build_win10_11_exe.bat — Double-click on Windows 10 or Windows 11 to compile .exe'}
-                  {activeTab === 'readme' && 'BUILD_WINDOWS10_11_EXE.md — Step-by-step instructions'}
+                  {activeTab === 'gui_py' && 'whisper_gui_win10_11.py — PepperVT v1.0 Desktop GUI'}
+                  {activeTab === 'spec' && 'PepperVT.spec — PyInstaller asset & hiddenimport manifest'}
+                  {activeTab === 'bat' && 'build_win10_11_exe.bat — Double-click on Windows 10 or Windows 11 to compile PepperVT_v1.0.exe'}
+                  {activeTab === 'readme' && 'BUILD_PEPPERVT_V1.0_EXE.md — Step-by-step instructions'}
                 </span>
                 <button
                   type="button"
