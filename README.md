@@ -1,3 +1,7 @@
+Direct download latest
+
+Windows 10/11  :  https://github.com/finnuen/PepperVT/releases/download/1.0/PepperVT_v1.0_Win10_Win11_Kit.zip
+
 i just realize there's someone who have already created 'Whisper Studio' 
 so i'd stop this app developement, lol.
 
